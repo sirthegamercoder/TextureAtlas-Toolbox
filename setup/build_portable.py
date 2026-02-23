@@ -988,6 +988,43 @@ pause
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ==============================================================
+# ImageMagick Configuration
+# ==============================================================
+# Try to auto-detect and configure ImageMagick for the Wand library
+
+# Check if ImageMagick is available
+check_imagemagick() {
+    command -v magick &> /dev/null || command -v convert &> /dev/null
+}
+
+if ! check_imagemagick; then
+    echo "WARNING: ImageMagick not found!"
+    echo "Some features may not work. Run ./setup.sh to install dependencies."
+    echo
+fi
+
+# Set MAGICK_HOME if not already set (helps Wand find the library)
+if [ -z "$MAGICK_HOME" ]; then
+    # macOS with Homebrew (Apple Silicon)
+    if [ -d "/opt/homebrew" ]; then
+        export MAGICK_HOME="/opt/homebrew"
+    # macOS with Homebrew (Intel)
+    elif [ -d "/usr/local/opt/imagemagick" ]; then
+        export MAGICK_HOME="/usr/local/opt/imagemagick"
+    # MacPorts
+    elif [ -d "/opt/local" ] && [ -f "/opt/local/lib/libMagickWand-7.Q16HDRI.dylib" ]; then
+        export MAGICK_HOME="/opt/local"
+    # Linux standard locations
+    elif [ -f "/usr/lib/libMagickWand-7.Q16HDRI.so" ] || [ -f "/usr/lib/x86_64-linux-gnu/libMagickWand-7.Q16HDRI.so" ]; then
+        export MAGICK_HOME="/usr"
+    fi
+fi
+
+# ==============================================================
+# Python Configuration
+# ==============================================================
+
 # Check for bundled Python venv
 if [ -f "python/bin/python" ]; then
     PYTHON_EXE="python/bin/python"
@@ -1033,6 +1070,47 @@ echo "============================================================"
 echo " TextureAtlas Toolbox - Debug Mode"
 echo "============================================================"
 echo
+
+# ==============================================================
+# ImageMagick Configuration
+# ==============================================================
+echo "Checking ImageMagick..."
+
+# Check if ImageMagick is available
+if command -v magick &> /dev/null; then
+    echo "  Found: $(magick --version | head -1)"
+elif command -v convert &> /dev/null; then
+    echo "  Found: $(convert --version | head -1)"
+else
+    echo "  WARNING: ImageMagick not found!"
+    echo "  Some features may not work. Run ./setup.sh to install dependencies."
+fi
+
+# Set MAGICK_HOME if not already set
+if [ -z "$MAGICK_HOME" ]; then
+    if [ -d "/opt/homebrew" ]; then
+        export MAGICK_HOME="/opt/homebrew"
+        echo "  MAGICK_HOME set to: /opt/homebrew (Homebrew Apple Silicon)"
+    elif [ -d "/usr/local/opt/imagemagick" ]; then
+        export MAGICK_HOME="/usr/local/opt/imagemagick"
+        echo "  MAGICK_HOME set to: /usr/local/opt/imagemagick (Homebrew Intel)"
+    elif [ -d "/opt/local" ] && [ -f "/opt/local/lib/libMagickWand-7.Q16HDRI.dylib" ]; then
+        export MAGICK_HOME="/opt/local"
+        echo "  MAGICK_HOME set to: /opt/local (MacPorts)"
+    elif [ -f "/usr/lib/libMagickWand-7.Q16HDRI.so" ] || [ -f "/usr/lib/x86_64-linux-gnu/libMagickWand-7.Q16HDRI.so" ]; then
+        export MAGICK_HOME="/usr"
+        echo "  MAGICK_HOME set to: /usr (Linux system)"
+    else
+        echo "  MAGICK_HOME not set (using system default)"
+    fi
+else
+    echo "  MAGICK_HOME already set: $MAGICK_HOME"
+fi
+echo
+
+# ==============================================================
+# Python Configuration
+# ==============================================================
 
 # Check for bundled Python venv
 if [ -f "python/bin/python" ]; then
@@ -1092,8 +1170,21 @@ fi
 # Set PYTHONPATH so Python can find modules in src/
 export PYTHONPATH="$SCRIPT_DIR/src"
 
+# Set MAGICK_HOME if not already set
+if [ -z "$MAGICK_HOME" ]; then
+    if [ -d "/opt/homebrew" ]; then
+        export MAGICK_HOME="/opt/homebrew"
+    elif [ -d "/usr/local/opt/imagemagick" ]; then
+        export MAGICK_HOME="/usr/local/opt/imagemagick"
+    elif [ -d "/opt/local" ] && [ -f "/opt/local/lib/libMagickWand-7.Q16HDRI.dylib" ]; then
+        export MAGICK_HOME="/opt/local"
+    elif [ -f "/usr/lib/libMagickWand-7.Q16HDRI.so" ] || [ -f "/usr/lib/x86_64-linux-gnu/libMagickWand-7.Q16HDRI.so" ]; then
+        export MAGICK_HOME="/usr"
+    fi
+fi
+
 echo "Requesting administrator privileges..."
-exec sudo "$PYTHON_EXE" "src/Main.py" "$@"
+exec sudo -E "$PYTHON_EXE" "src/Main.py" "$@"
 """
         admin_sh_path = dist_path / "TextureAtlas Toolbox (Admin).sh"
         admin_sh_path.write_text(admin_sh_content, encoding="utf-8")
@@ -1118,11 +1209,51 @@ echo
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
     echo "Requesting administrator privileges..."
-    exec sudo "$0" "$@"
+    exec sudo -E "$0" "$@"
 fi
 
 echo "Running with administrator privileges."
 echo
+
+# ==============================================================
+# ImageMagick Configuration
+# ==============================================================
+echo "Checking ImageMagick..."
+
+if command -v magick &> /dev/null; then
+    echo "  Found: $(magick --version | head -1)"
+elif command -v convert &> /dev/null; then
+    echo "  Found: $(convert --version | head -1)"
+else
+    echo "  WARNING: ImageMagick not found!"
+    echo "  Some features may not work. Run ./setup.sh to install dependencies."
+fi
+
+# Set MAGICK_HOME if not already set
+if [ -z "$MAGICK_HOME" ]; then
+    if [ -d "/opt/homebrew" ]; then
+        export MAGICK_HOME="/opt/homebrew"
+        echo "  MAGICK_HOME set to: /opt/homebrew (Homebrew Apple Silicon)"
+    elif [ -d "/usr/local/opt/imagemagick" ]; then
+        export MAGICK_HOME="/usr/local/opt/imagemagick"
+        echo "  MAGICK_HOME set to: /usr/local/opt/imagemagick (Homebrew Intel)"
+    elif [ -d "/opt/local" ] && [ -f "/opt/local/lib/libMagickWand-7.Q16HDRI.dylib" ]; then
+        export MAGICK_HOME="/opt/local"
+        echo "  MAGICK_HOME set to: /opt/local (MacPorts)"
+    elif [ -f "/usr/lib/libMagickWand-7.Q16HDRI.so" ] || [ -f "/usr/lib/x86_64-linux-gnu/libMagickWand-7.Q16HDRI.so" ]; then
+        export MAGICK_HOME="/usr"
+        echo "  MAGICK_HOME set to: /usr (Linux system)"
+    else
+        echo "  MAGICK_HOME not set (using system default)"
+    fi
+else
+    echo "  MAGICK_HOME already set: $MAGICK_HOME"
+fi
+echo
+
+# ==============================================================
+# Python Configuration
+# ==============================================================
 
 # Check for bundled Python venv
 if [ -f "python/bin/python" ]; then
@@ -1159,7 +1290,7 @@ read -p "Press Enter to close..."
         self.log(f"Created: {debug_admin_sh_path.name}")
 
     def _create_unix_setup_script(self, dist_path: Path) -> None:
-        """Create a setup script for Unix that ensures Python dependencies."""
+        """Create a setup script for Unix that ensures Python and ImageMagick dependencies."""
         setup_content = """#!/bin/bash
 
 # TextureAtlas Toolbox - First-time Setup
@@ -1173,39 +1304,139 @@ echo " TextureAtlas Toolbox - Setup"
 echo "============================================================"
 echo
 
+# Detect OS
+OS_TYPE="unknown"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    OS_TYPE="macos"
+elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    OS_TYPE="linux"
+fi
+
+echo "Detected OS: $OS_TYPE"
+echo
+
+# ==============================================================
+# Step 1: Check/Install ImageMagick
+# ==============================================================
+echo "[1/3] Checking ImageMagick..."
+
+check_imagemagick() {
+    # Check if ImageMagick (magick command or convert) is available
+    if command -v magick &> /dev/null; then
+        echo "  Found: $(magick --version | head -1)"
+        return 0
+    elif command -v convert &> /dev/null; then
+        echo "  Found: $(convert --version | head -1)"
+        return 0
+    fi
+    return 1
+}
+
+install_imagemagick() {
+    echo "  ImageMagick not found. Attempting to install..."
+    echo
+    
+    if [[ "$OS_TYPE" == "macos" ]]; then
+        # macOS - use Homebrew
+        if command -v brew &> /dev/null; then
+            echo "  Installing via Homebrew..."
+            brew install imagemagick
+        else
+            echo "  ERROR: Homebrew not found."
+            echo "  Please install Homebrew first: https://brew.sh/"
+            echo "  Then run: brew install imagemagick"
+            return 1
+        fi
+    elif [[ "$OS_TYPE" == "linux" ]]; then
+        # Linux - detect package manager
+        if command -v apt-get &> /dev/null; then
+            echo "  Installing via apt (Debian/Ubuntu)..."
+            sudo apt-get update && sudo apt-get install -y libmagickwand-dev imagemagick
+        elif command -v dnf &> /dev/null; then
+            echo "  Installing via dnf (Fedora)..."
+            sudo dnf install -y ImageMagick-devel
+        elif command -v yum &> /dev/null; then
+            echo "  Installing via yum (CentOS/RHEL)..."
+            sudo yum install -y ImageMagick-devel
+        elif command -v pacman &> /dev/null; then
+            echo "  Installing via pacman (Arch)..."
+            sudo pacman -S --noconfirm imagemagick
+        elif command -v zypper &> /dev/null; then
+            echo "  Installing via zypper (openSUSE)..."
+            sudo zypper install -y ImageMagick-devel
+        elif command -v apk &> /dev/null; then
+            echo "  Installing via apk (Alpine)..."
+            sudo apk add imagemagick imagemagick-dev
+        else
+            echo "  ERROR: Could not detect package manager."
+            echo "  Please install ImageMagick manually."
+            return 1
+        fi
+    else
+        echo "  ERROR: Unsupported OS."
+        return 1
+    fi
+    
+    return 0
+}
+
+if ! check_imagemagick; then
+    install_imagemagick
+    if ! check_imagemagick; then
+        echo
+        echo "  WARNING: ImageMagick installation may have failed."
+        echo "  The app may not work correctly without ImageMagick."
+        echo "  Please install it manually and re-run this script."
+        echo
+    fi
+fi
+echo
+
+# ==============================================================
+# Step 2: Check/Install Python
+# ==============================================================
+echo "[2/3] Checking Python..."
+
 # Check for Python 3
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &> /dev/null; then
     PYTHON_CMD="python"
 else
-    echo "ERROR: Python 3 is not installed."
-    echo "Please install Python 3.10 or later from your package manager:"
-    echo "  Ubuntu/Debian: sudo apt install python3 python3-venv python3-pip"
-    echo "  Fedora: sudo dnf install python3"
-    echo "  macOS: brew install python3"
+    echo "  ERROR: Python 3 is not installed."
+    echo "  Please install Python 3.10 or later from your package manager:"
+    echo "    Ubuntu/Debian: sudo apt install python3 python3-venv python3-pip"
+    echo "    Fedora: sudo dnf install python3 python3-pip"
+    echo "    macOS: brew install python3"
     exit 1
 fi
 
 # Check Python version
 PY_VERSION=$($PYTHON_CMD -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-echo "Found Python $PY_VERSION"
+echo "  Found Python $PY_VERSION"
+echo
+
+# ==============================================================
+# Step 3: Setup Python virtual environment
+# ==============================================================
+echo "[3/3] Setting up Python environment..."
 
 # Create virtual environment if it doesn't exist
 if [ ! -d "python" ]; then
-    echo "Creating Python virtual environment..."
+    echo "  Creating Python virtual environment..."
     $PYTHON_CMD -m venv python
 fi
 
 # Activate and install requirements
-echo "Installing required packages..."
+echo "  Installing required packages..."
 source python/bin/activate
 pip install --upgrade pip
 pip install -r setup/requirements.txt
 
 echo
 echo "============================================================"
-echo " Setup complete! You can now run: ./TextureAtlas Toolbox.sh"
+echo " Setup complete!"
+echo " You can now run: ./TextureAtlas Toolbox.sh"
 echo "============================================================"
 """
         setup_path = dist_path / "setup.sh"

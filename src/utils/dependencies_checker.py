@@ -159,6 +159,53 @@ class DependenciesChecker:
         print(f"Using bundled ImageMagick from: {dll_path}")
 
     @staticmethod
+    def configure_imagemagick_unix():
+        """Configure ImageMagick on Unix systems by setting MAGICK_HOME.
+
+        This helps the Wand library find ImageMagick installed via package managers.
+        The environment variable must be set before importing wand.
+
+        Returns:
+            True if MAGICK_HOME was set, False otherwise.
+        """
+        if os.environ.get("MAGICK_HOME"):
+            print(f"MAGICK_HOME already set: {os.environ['MAGICK_HOME']}")
+            return True
+
+        magick_home = None
+
+        if platform.system() == "Darwin":  # macOS
+            # Homebrew on Apple Silicon
+            if os.path.isdir("/opt/homebrew"):
+                magick_home = "/opt/homebrew"
+            # Homebrew on Intel
+            elif os.path.isdir("/usr/local/opt/imagemagick"):
+                magick_home = "/usr/local/opt/imagemagick"
+            # MacPorts
+            elif os.path.isdir("/opt/local") and os.path.exists(
+                "/opt/local/lib/libMagickWand-7.Q16HDRI.dylib"
+            ):
+                magick_home = "/opt/local"
+        else:  # Linux
+            lib_paths = [
+                "/usr/lib/libMagickWand-7.Q16HDRI.so",
+                "/usr/lib/x86_64-linux-gnu/libMagickWand-7.Q16HDRI.so",
+                "/usr/lib/aarch64-linux-gnu/libMagickWand-7.Q16HDRI.so",
+                "/usr/lib64/libMagickWand-7.Q16HDRI.so",
+            ]
+            for lib_path in lib_paths:
+                if os.path.exists(lib_path):
+                    magick_home = "/usr"
+                    break
+
+        if magick_home:
+            os.environ["MAGICK_HOME"] = magick_home
+            print(f"Set MAGICK_HOME to: {magick_home}")
+            return True
+
+        return False
+
+    @staticmethod
     def check_and_configure_imagemagick():
         """Ensure ImageMagick is available, configuring bundled version if needed.
 
@@ -167,6 +214,9 @@ class DependenciesChecker:
         """
         if DependenciesChecker.check_imagemagick():
             print("Using the user's existing ImageMagick.")
+            # On Unix, also set MAGICK_HOME to help Wand find the libraries
+            if platform.system() != "Windows":
+                DependenciesChecker.configure_imagemagick_unix()
             return True
 
         if platform.system() == "Windows":
@@ -179,6 +229,13 @@ class DependenciesChecker:
                 return True
             except Exception as e:
                 print(f"Failed to configure bundled ImageMagick: {e}")
+        else:
+            # On Unix, try to set MAGICK_HOME even if magick command not found
+            print(
+                "ImageMagick command not found. Attempting to configure MAGICK_HOME..."
+            )
+            if DependenciesChecker.configure_imagemagick_unix():
+                print("Set MAGICK_HOME for Wand library.")
 
         msg = (
             "ImageMagick not found or failed to initialize.\n\n"
