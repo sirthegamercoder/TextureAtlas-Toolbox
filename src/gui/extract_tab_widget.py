@@ -1629,7 +1629,14 @@ class ExtractTabWidget(BaseTabWidget):
                 spritesheet_name, None
             )
 
+        # Re-populate the animation list for whatever spritesheet is now
+        # current.  The earlier takeItem() calls may have already fired
+        # currentItemChanged, but the blanket clear() below would wipe that
+        # out, so we must repopulate explicitly.
         self.listbox_data.clear()
+        remaining = self.listbox_png.currentItem()
+        if remaining:
+            self.populate_animation_list(remaining.text())
 
     def show_listbox_png_menu(self, position):
         """Display a context menu for the spritesheet listbox.
