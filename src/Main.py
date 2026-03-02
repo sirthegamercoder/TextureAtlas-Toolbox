@@ -9,9 +9,37 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox
-from PySide6.QtCore import QThread, Signal, QTimer, Qt, QCoreApplication, QSize
-from PySide6.QtGui import QIcon, QAction
+# Bootstrap Qt environment BEFORE importing PySide6.
+# This sets QT_PLUGIN_PATH, adds PySide6 to the DLL search path, etc.
+# Fixes "DLL load failed" and "no qt platform plugin" errors on Windows,
+# especially in embedded-Python / portable builds.
+from utils.qt_environment import configure_qt_environment
+
+configure_qt_environment()
+
+try:
+    from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMessageBox
+    from PySide6.QtCore import QThread, Signal, QTimer, Qt, QCoreApplication, QSize
+    from PySide6.QtGui import QIcon, QAction
+except ImportError as _qt_err:
+    print(
+        "\n"
+        "=" * 64 + "\n"
+        "  ERROR: Failed to load PySide6 / Qt libraries.\n"
+        "=" * 64 + "\n"
+        f"\n  {_qt_err}\n\n"
+        "  Common fixes:\n"
+        "    1. Install/reinstall PySide6:\n"
+        "         pip install --force-reinstall PySide6\n"
+        "\n"
+        "    2. Install the Visual C++ Redistributable (x64):\n"
+        "         https://aka.ms/vs/17/release/vc_redist.x64.exe\n"
+        "\n"
+        "    3. If using the portable build, make sure you extracted\n"
+        "       ALL files from the archive (including the python/ folder).\n"
+        "=" * 64
+    )
+    sys.exit(1)
 
 # Import our own modules
 from utils.dependencies_checker import DependenciesChecker

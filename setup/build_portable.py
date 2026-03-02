@@ -660,6 +660,10 @@ if not exist "python\pythonw.exe" (
     exit /b 1
 )
 
+:: Set Qt environment so PySide6 can find its plugins and DLLs
+set "QT_PLUGIN_PATH=%~dp0python\Lib\site-packages\PySide6\plugins"
+set "PATH=%~dp0python\Lib\site-packages\PySide6;%PATH%"
+
 :: Launch the application silently (no console)
 start "" "python\pythonw.exe" "src\Main.py" %*
 """
@@ -686,6 +690,12 @@ echo Python executable: python\python.exe
 echo.
 
 "python\python.exe" --version
+echo.
+
+:: Set Qt environment so PySide6 can find its plugins and DLLs
+set "QT_PLUGIN_PATH=%~dp0python\Lib\site-packages\PySide6\plugins"
+set "PATH=%~dp0python\Lib\site-packages\PySide6;%PATH%"
+echo Qt plugin path: %QT_PLUGIN_PATH%
 echo.
 
 echo Starting application...
@@ -718,6 +728,10 @@ if not exist "python\pythonw.exe" (
     pause
     exit /b 1
 )
+
+:: Set Qt environment so PySide6 can find its plugins and DLLs
+set "QT_PLUGIN_PATH=%~dp0python\Lib\site-packages\PySide6\plugins"
+set "PATH=%~dp0python\Lib\site-packages\PySide6;%PATH%"
 
 :: Request UAC elevation and launch
 powershell -Command "Start-Process -FilePath 'python\pythonw.exe' -ArgumentList 'src\Main.py' -Verb RunAs -WorkingDirectory '%~dp0'"
@@ -754,6 +768,12 @@ echo Python executable: python\python.exe
 echo.
 
 "python\python.exe" --version
+echo.
+
+:: Set Qt environment so PySide6 can find its plugins and DLLs
+set "QT_PLUGIN_PATH=%~dp0python\Lib\site-packages\PySide6\plugins"
+set "PATH=%~dp0python\Lib\site-packages\PySide6;%PATH%"
+echo Qt plugin path: %QT_PLUGIN_PATH%
 echo.
 
 echo Starting application...
