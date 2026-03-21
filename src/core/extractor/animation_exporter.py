@@ -145,6 +145,11 @@ class AnimationExporter:
         custom_durations = settings.get("custom_frame_durations")
         if custom_durations and len(custom_durations) == len(final_images):
             durations = list(custom_durations)
+            if period and durations:
+                total = sum(durations)
+                padding = max(0, int(period) - total)
+                if padding > 0:
+                    durations[-1] += padding
         else:
             durations = build_frame_durations(
                 len(final_images),
@@ -231,6 +236,11 @@ class AnimationExporter:
         if custom_durations and len(custom_durations) == len(images):
             # Round to 10ms for GIF compatibility
             durations = [max(10, (d // 10) * 10) for d in custom_durations]
+            if period and durations:
+                total = sum(durations)
+                padding = max(0, int(round(period, -1)) - total)
+                if padding > 0:
+                    durations[-1] += padding
         else:
             durations = build_frame_durations(
                 len(images),
@@ -420,6 +430,11 @@ class AnimationExporter:
         custom_durations = settings.get("custom_frame_durations")
         if custom_durations and len(custom_durations) == len(final_images):
             durations = list(custom_durations)
+            if period and durations:
+                total = sum(durations)
+                padding = max(0, int(period) - total)
+                if padding > 0:
+                    durations[-1] += padding
         else:
             durations = build_frame_durations(
                 len(final_images),

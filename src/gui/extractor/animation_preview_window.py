@@ -1171,10 +1171,8 @@ class AnimationPreviewWindow(QDialog):
         self._loop_delay_applied = False
 
         interval = self._get_frame_duration_ms(self.current_frame)
-
-        min_period = self.settings.get("period", 0)
-        if min_period > 0:
-            interval = max(interval, min_period)
+        if self._is_last_checked_frame():
+            interval += self._get_min_period_padding()
 
         self.timer.start(max(1, interval))
 
@@ -1186,12 +1184,38 @@ class AnimationPreviewWindow(QDialog):
 
         self._loop_delay_applied = False
 
+    def _get_min_period_padding(self) -> int:
+        """Compute extra ms to add to the last frame for minimum period.
+
+        Mirrors the logic of ``build_frame_durations``: if the total loop
+        duration (all checked frames + loop delay) is less than the
+        configured minimum period, the deficit is added to the last frame.
+
+        Returns:
+            Non-negative padding in milliseconds.
+        """
+        min_period = self.settings.get("period", 0)
+        if min_period <= 0:
+            return 0
+
+        checked = self.get_checked_frame_indices()
+        if not checked:
+            return 0
+
+        total = sum(self._get_frame_duration_ms(i) for i in checked)
+        total += self.settings.get("delay", 0)
+        return max(0, min_period - total)
+
+    def _is_last_checked_frame(self) -> bool:
+        """Return True if the current frame is the last checked frame."""
+        checked = self.get_checked_frame_indices()
+        return bool(checked) and self.current_frame == checked[-1]
+
     def _restart_timer_for_current_frame(self):
         """Restart the playback timer using the current frame's duration."""
         interval = self._get_frame_duration_ms(self.current_frame)
-        min_period = self.settings.get("period", 0)
-        if min_period > 0:
-            interval = max(interval, min_period)
+        if self._is_last_checked_frame():
+            interval += self._get_min_period_padding()
         self.timer.start(max(1, interval))
 
     def next_frame(self):
@@ -1222,9 +1246,8 @@ class AnimationPreviewWindow(QDialog):
 
             if self.is_playing:
                 interval = self._get_frame_duration_ms(self.current_frame)
-                min_period = self.settings.get("period", 0)
-                if min_period > 0:
-                    interval = max(interval, min_period)
+                if self._is_last_checked_frame():
+                    interval += self._get_min_period_padding()
                 self.timer.start(max(1, interval))
 
     def previous_frame(self):
