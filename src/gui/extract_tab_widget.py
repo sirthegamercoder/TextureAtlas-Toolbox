@@ -66,6 +66,7 @@ from utils.duration_utils import (
     resolve_native_duration_type,
 )
 from core.extractor.spritemap.metadata import (
+    collect_direct_child_symbols,
     collect_referenced_symbols,
     compute_layers_length,
     compute_symbol_lengths,
@@ -1214,12 +1215,16 @@ class ExtractTabWidget(BaseTabWidget):
 
             symbol_lengths = compute_symbol_lengths(animation_json)
 
-            # Compute the set of symbols referenced by the root timeline
-            referenced_symbols = (
-                collect_referenced_symbols(animation_json)
-                if self.filter_unused_spritemap_symbols
-                else None
-            )
+            # Compute which symbols to show as standalone animations.
+            # Direct children of the root timeline are the actual playable
+            # animations; deeper nested symbols are internal helpers.
+            direct_children = collect_direct_child_symbols(animation_json)
+            if direct_children:
+                referenced_symbols = direct_children
+            elif self.filter_unused_spritemap_symbols:
+                referenced_symbols = collect_referenced_symbols(animation_json)
+            else:
+                referenced_symbols = None
 
             # Include the root animation (full AN timeline) if present
             an = animation_json.get("AN", {})

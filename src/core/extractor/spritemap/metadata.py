@@ -209,3 +209,24 @@ def extract_label_ranges_from_layers(
         Sorted list of dicts with ``name``, ``start``, and ``end`` keys.
     """
     return _extract_label_ranges_from_layers(layers)
+
+
+def collect_direct_child_symbols(animation_json: dict) -> Set[str]:
+    """Return symbol names directly referenced by the root ``AN`` timeline.
+
+    Unlike `collect_referenced_symbols` which follows the full
+    transitive closure, this only returns depth-1 references — the symbols
+    that appear in ``SI.SN`` entries on the root timeline's layers.
+
+    These represent the actual playable animations (e.g. "ZardyIdle",
+    "ZardyUp") rather than internal composition helpers (e.g. body parts,
+    face lip-sync layers) that are only used inside those top-level symbols.
+
+    Args:
+        animation_json: Parsed and normalized Animation.json structure.
+
+    Returns:
+        Set of symbol names directly referenced by the root timeline.
+    """
+    root_layers = animation_json.get("AN", {}).get("TL", {}).get("L", [])
+    return _collect_symbol_refs_from_layers(root_layers)

@@ -17,6 +17,7 @@ from parsers.parser_types import (
 )
 from utils.utilities import Utilities
 from core.extractor.spritemap.metadata import (
+    collect_direct_child_symbols,
     collect_referenced_symbols,
     compute_layers_length,
     compute_symbol_lengths,
@@ -70,12 +71,16 @@ class SpritemapParser(BaseParser):
 
             symbol_lengths = compute_symbol_lengths(animation_json)
 
-            # Compute referenced symbols for filtering
-            referenced_symbols = (
-                collect_referenced_symbols(animation_json)
-                if self.filter_unused_symbols
-                else None
-            )
+            # Compute which symbols to show as standalone animations.
+            # Direct children of the root timeline are the actual playable
+            # animations; deeper nested symbols are internal helpers.
+            direct_children = collect_direct_child_symbols(animation_json)
+            if direct_children:
+                referenced_symbols = direct_children
+            elif self.filter_unused_symbols:
+                referenced_symbols = collect_referenced_symbols(animation_json)
+            else:
+                referenced_symbols = None
 
             # Include the root animation (full AN timeline) name
             an = animation_json.get("AN", {})

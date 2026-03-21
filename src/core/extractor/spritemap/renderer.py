@@ -26,7 +26,7 @@ from PIL import Image
 from utils.utilities import Utilities
 from .sprite_atlas import SpriteAtlas
 from .symbols import Symbols
-from .metadata import collect_referenced_symbols
+from .metadata import collect_direct_child_symbols, collect_referenced_symbols
 from .normalizer import normalize_animation_document
 from .transform_matrix import TransformMatrix
 
@@ -102,11 +102,14 @@ class AdobeSpritemapRenderer:
         self.filter_single_frame = filter_single_frame
         self.filter_unused_symbols = filter_unused_symbols
         self.root_animation_only = root_animation_only
-        self._referenced_symbols = (
-            collect_referenced_symbols(self.animation_json)
-            if filter_unused_symbols
-            else None
-        )
+
+        direct_children = collect_direct_child_symbols(self.animation_json)
+        if direct_children:
+            self._referenced_symbols = direct_children
+        elif filter_unused_symbols:
+            self._referenced_symbols = collect_referenced_symbols(self.animation_json)
+        else:
+            self._referenced_symbols = None
         self.sprite_atlas = SpriteAtlas(
             spritemap_json, atlas_image, canvas_size, resample
         )
