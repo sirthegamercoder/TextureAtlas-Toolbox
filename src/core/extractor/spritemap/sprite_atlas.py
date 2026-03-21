@@ -49,6 +49,18 @@ class SpriteAtlas:
         self.sprite_info = {}
         self.sprites = {}
 
+        # Extra precaution to handle cases where the atlas
+        # image dimensions don't match the declared size in the spritemap metadata.
+        actual_w, actual_h = atlas_image.size
+        meta_size = spritemap_json.get("meta", {}).get("size", {})
+        declared_w = meta_size.get("w", actual_w)
+        declared_h = meta_size.get("h", actual_h)
+        self._scale_x = actual_w / declared_w if declared_w > 0 else 1.0
+        self._scale_y = actual_h / declared_h if declared_h > 0 else 1.0
+        self._needs_rescale = not (
+            0.99 < self._scale_x < 1.01 and 0.99 < self._scale_y < 1.01
+        )
+
         for sprite in spritemap_json.get("ATLAS", {}).get("SPRITES", []):
             data = sprite["SPRITE"] if "SPRITE" in sprite else sprite
             x = data.get("x", 0)
@@ -81,7 +93,21 @@ class SpriteAtlas:
             sprite_info = self.sprite_info.get(name)
             if sprite_info is None:
                 return None, None
-            sprite = self.img.crop(sprite_info["box"])
+            box = sprite_info["box"]
+            if self._needs_rescale:
+                scaled_box = (
+                    round(box[0] * self._scale_x),
+                    round(box[1] * self._scale_y),
+                    round(box[2] * self._scale_x),
+                    round(box[3] * self._scale_y),
+                )
+                sprite = self.img.crop(scaled_box)
+                orig_w = box[2] - box[0]
+                orig_h = box[3] - box[1]
+                if sprite.size != (orig_w, orig_h):
+                    sprite = sprite.resize((orig_w, orig_h), self.resample)
+            else:
+                sprite = self.img.crop(box)
             if sprite_info.get("rotated"):
                 sprite = sprite.transpose(Image.ROTATE_90)
             self.sprites[name] = sprite
