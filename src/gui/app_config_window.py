@@ -7,6 +7,7 @@ image compression options, optimizer defaults, UI preferences, and
 update behavior.
 """
 
+import os
 import platform
 import multiprocessing
 import subprocess
@@ -125,20 +126,7 @@ class AppConfigWindow(QDialog):
         self.cpu_model = "Unknown CPU"
         try:
             if platform.system() == "Windows":
-                self.cpu_model = (
-                    subprocess.check_output("wmic cpu get Name", shell=True)
-                    .decode(errors="ignore")
-                    .split("\n")[1]
-                    .strip()
-                )
-                self.max_threads = int(
-                    subprocess.check_output(
-                        "wmic cpu get NumberOfLogicalProcessors", shell=True
-                    )
-                    .decode(errors="ignore")
-                    .split("\n")[1]
-                    .strip()
-                )
+                self.cpu_model, self.max_threads = self._detect_cpu_windows()
             elif platform.system() == "Linux":
                 with open("/proc/cpuinfo") as f:
                     for line in f:
@@ -164,6 +152,61 @@ class AppConfigWindow(QDialog):
 
         if not self.max_threads:
             self.max_threads = self.max_cores
+
+    @staticmethod
+    def _detect_cpu_windows():
+        """Detect CPU model and thread count on Windows.
+
+        Reads from the registry first (works in Nuitka builds), then
+        falls back to ``wmic`` if the registry key is unavailable.
+
+        Returns:
+            Tuple ``(cpu_model, max_threads)``.
+        """
+        import winreg
+
+        cpu_model = "Unknown CPU"
+        max_threads = None
+
+        # Registry is the most reliable source — no subprocess needed
+        try:
+            key = winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+            )
+            cpu_model = winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
+            winreg.CloseKey(key)
+        except Exception:
+            # Fall back to wmic (may fail in frozen builds)
+            try:
+                cpu_model = (
+                    subprocess.check_output("wmic cpu get Name", shell=True)
+                    .decode(errors="ignore")
+                    .split("\n")[1]
+                    .strip()
+                )
+            except Exception:
+                pass
+
+        try:
+            max_threads = int(os.environ.get("NUMBER_OF_PROCESSORS", 0)) or None
+        except (ValueError, TypeError):
+            pass
+
+        if not max_threads:
+            try:
+                max_threads = int(
+                    subprocess.check_output(
+                        "wmic cpu get NumberOfLogicalProcessors", shell=True
+                    )
+                    .decode(errors="ignore")
+                    .split("\n")[1]
+                    .strip()
+                )
+            except Exception:
+                max_threads = multiprocessing.cpu_count()
+
+        return cpu_model, max_threads
 
     def init_variables(self):
         """Initialize placeholder attributes for UI controls."""
