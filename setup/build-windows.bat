@@ -55,6 +55,7 @@ set PY310_312=0
 echo %PYVER% | find "3.10" >nul && set PY310_312=1
 echo %PYVER% | find "3.11" >nul && set PY310_312=1
 echo %PYVER% | find "3.12" >nul && set PY310_312=1
+echo %PYVER% | find "3.13" >nul && set PY310_312=1
 
 :: Detect MSVC
 set MSVC_INSTALLED=0
@@ -133,6 +134,7 @@ call nuitka ^
  --include-data-dir=docs=docs^
  --include-data-dir=ImageMagick=ImageMagick^
  --include-data-files=ImageMagick\*.dll=ImageMagick\^
+ --include-data-files=ImageMagick\modules\coders\*.dll=ImageMagick\modules\coders\^
  --include-data-files=LICENSE=LICENSE^
  --include-data-files=README.md=README.md^
  --include-package=src^
@@ -141,7 +143,7 @@ call nuitka ^
  --product-name="TextureAtlas Toolbox"^
  --file-version=%APP_VERSION%^
  --product-version=%APP_VERSION%^
- --copyright="Copyright © 2025 AutisticLulu. Licensed under the GNU Affero General Public License (AGPL)"^
+ --copyright="Copyright © 2026 AutisticLulu. Licensed under the GNU Affero General Public License (AGPL)"^
  --file-description="TextureAtlas Toolbox v%APP_VERSION%"^
  --output-filename="TextureAtlasToolbox.exe"^
  --output-dir=_build-output src\Main.py %SHOW_SCONS% %NUITKA_CLANG%
@@ -171,6 +173,7 @@ if %errorlevel%==0 (
      --include-data-dir=docs=docs^
      --include-data-dir=ImageMagick=ImageMagick^
      --include-data-files=ImageMagick\*.dll=ImageMagick\^
+     --include-data-files=ImageMagick\modules\coders\*.dll=ImageMagick\modules\coders\^
      --include-data-files=LICENSE=LICENSE^
      --include-data-files=README.md=README.md^
      --include-package=src^

@@ -135,6 +135,10 @@ class DependenciesChecker:
     def configure_imagemagick():
         """Configure the bundled ImageMagick by setting environment variables.
 
+        Sets MAGICK_HOME, MAGICK_CONFIGURE_PATH, MAGICK_CODER_MODULE_PATH,
+        and registers the DLL directory so that ImageMagick can locate its
+        modules and config files without relying on the Windows registry.
+
         Raises:
             FileNotFoundError: If the bundled ImageMagick folder is missing.
         """
@@ -150,11 +154,16 @@ class DependenciesChecker:
                 f"Expected ImageMagick folder but couldn't be found at: {dll_path}"
             )
 
+        os.environ["MAGICK_HOME"] = dll_path
+        os.environ["MAGICK_CONFIGURE_PATH"] = dll_path
         os.environ["PATH"] = dll_path + os.pathsep + os.environ.get("PATH", "")
 
         coders_path = os.path.join(dll_path, "modules", "coders")
         if os.path.isdir(coders_path):
             os.environ["MAGICK_CODER_MODULE_PATH"] = coders_path
+
+        if hasattr(os, "add_dll_directory"):
+            os.add_dll_directory(dll_path)
 
         print(f"[ImageMagick] Using bundled installation from: {dll_path}")
 
