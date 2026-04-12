@@ -37,11 +37,6 @@ class FrameSelector:
         _, first_image, first_meta = image_tuples[0]
         first_array = ensure_rgba_array(first_image)
 
-        try:
-            first_bytes = first_array.tobytes()
-        except Exception:
-            first_bytes = None
-
         first_shape = first_array.shape
 
         for _, image, metadata in image_tuples[1:]:
@@ -51,14 +46,6 @@ class FrameSelector:
             candidate = ensure_rgba_array(image)
             if candidate.shape != first_shape:
                 return False
-
-            if first_bytes is not None:
-                try:
-                    if candidate.tobytes() != first_bytes:
-                        return False
-                    continue
-                except Exception:
-                    first_bytes = None
 
             if not np.array_equal(candidate, first_array):
                 return False
