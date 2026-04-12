@@ -884,7 +884,18 @@ class AtlasGenerator:
 
         Returns:
             Composited RGBA atlas image.
+
+        Raises:
+            ValueError: If the requested atlas dimensions exceed safe limits.
         """
+        # Guard against excessive memory allocation (RGBA = 4 bytes/pixel)
+        MAX_ATLAS_PIXELS = 16384 * 16384  # ~1 GB
+        if width * height > MAX_ATLAS_PIXELS:
+            raise ValueError(
+                f"Atlas size {width}x{height} ({width * height:,} pixels) exceeds "
+                f"the safe limit of {MAX_ATLAS_PIXELS:,} pixels"
+            )
+
         atlas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
         total = len(packed_frames)
