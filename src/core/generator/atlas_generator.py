@@ -167,6 +167,8 @@ class AtlasGenerator:
             return f"{anim_name}{idx:04d}"
         if export_format in ("json-hash", "json-array"):
             return f"{anim_name}_{idx + 1:02d}"
+        if export_format == "gdx":
+            return f"{anim_name}_{idx}"
         return f"{anim_name}_{idx:04d}"
 
     @staticmethod

@@ -49,6 +49,7 @@ Supported Formats:
     - egret2d: Egret 2D JSON format
     - paper2d: Unreal Paper2D JSON format
     - unity: TexturePacker Unity text format
+    - gdx: libGDX TexturePacker atlas format
 
 Classes:
     BaseExporter: Abstract base class for all exporters.
@@ -143,6 +144,10 @@ from exporters.unity_exporter import (
     UnityExporter,
     UnityExportOptions,
 )
+from exporters.gdx_exporter import (
+    GdxExporter,
+    GdxExportOptions,
+)
 
 __all__ = [
     # Base class
@@ -194,4 +199,6 @@ __all__ = [
     "Paper2DExportOptions",
     "UnityExporter",
     "UnityExportOptions",
+    "GdxExporter",
+    "GdxExportOptions",
 ]

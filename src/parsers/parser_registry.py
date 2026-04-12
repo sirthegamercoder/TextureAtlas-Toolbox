@@ -115,6 +115,9 @@ class ParserRegistry:
         elif ext == ".plist":
             return cls._detect_plist_parser(file_path, candidates)
 
+        if ext == ".atlas":
+            return cls._detect_atlas_parser(file_path, candidates)
+
         # Default to first candidate
         return candidates[0]
 
@@ -275,6 +278,46 @@ class ParserRegistry:
         return candidates[0] if candidates else None
 
     @classmethod
+    def _detect_atlas_parser(
+        cls,
+        file_path: str,
+        candidates: List[Type[BaseParser]],
+    ) -> Optional[Type[BaseParser]]:
+        """Detect whether an .atlas file is modern GDX or legacy Spine format.
+
+        The modern libGDX format uses ``bounds:`` and ``offsets:`` fields.
+        If those markers are found, selects GdxAtlasParser; otherwise
+        falls back to SpineAtlasParser.
+
+        Args:
+            file_path: Path to the .atlas file.
+            candidates: List of parser classes to check.
+
+        Returns:
+            The matching parser class or the first candidate as fallback.
+        """
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith("bounds:") or stripped.startswith(
+                        "offsets:"
+                    ):
+                        for parser in candidates:
+                            if parser.__name__ == "GdxAtlasParser":
+                                return parser
+                        break
+        except (OSError, UnicodeDecodeError):
+            pass
+
+        # Default: prefer Spine parser for legacy .atlas files
+        for parser in candidates:
+            if parser.__name__ == "SpineAtlasParser":
+                return parser
+
+        return candidates[0] if candidates else None
+
+    @classmethod
     def parse_file(cls, file_path: str) -> ParseResult:
         """Parse a file using the appropriate parser.
 
@@ -329,6 +372,7 @@ class ParserRegistry:
             css_legacy_parser,
             css_spritesheet_parser,
             egret2d_parser,
+            gdx_parser,
             godot_atlas_parser,
             json_array_parser,
             json_hash_parser,
@@ -349,6 +393,7 @@ class ParserRegistry:
             css_legacy_parser.CssLegacyParser,
             css_spritesheet_parser.CssSpriteSheetParser,
             egret2d_parser.Egret2DParser,
+            gdx_parser.GdxAtlasParser,
             godot_atlas_parser.GodotAtlasParser,
             json_array_parser.JsonArrayAtlasParser,
             json_hash_parser.JsonHashAtlasParser,
