@@ -321,8 +321,27 @@ class AsepriteParser(BaseParser):
         Returns:
             List of frame tag dicts with name, from, to, direction, color.
         """
-        with open(file_path, "r", encoding="utf-8") as json_file:
-            data = json.load(json_file)
+        try:
+            with open(file_path, "r", encoding="utf-8") as json_file:
+                data = json.load(json_file)
+        except FileNotFoundError:
+            raise FileError(
+                ParserErrorCode.FILE_NOT_FOUND,
+                f"File not found: {file_path}",
+                file_path=file_path,
+            )
+        except json.JSONDecodeError as exc:
+            raise FormatError(
+                ParserErrorCode.MALFORMED_STRUCTURE,
+                f"Invalid JSON in frame tags: {exc}",
+                file_path=file_path,
+            ) from exc
+        except OSError as exc:
+            raise FileError(
+                ParserErrorCode.FILE_READ_ERROR,
+                f"Cannot read file: {exc}",
+                file_path=file_path,
+            ) from exc
         meta = data.get("meta", {})
         return meta.get("frameTags", [])
 
@@ -341,8 +360,27 @@ class AsepriteParser(BaseParser):
         Returns:
             List of sprite dicts for frames in the specified animation.
         """
-        with open(file_path, "r", encoding="utf-8") as json_file:
-            data = json.load(json_file)
+        try:
+            with open(file_path, "r", encoding="utf-8") as json_file:
+                data = json.load(json_file)
+        except FileNotFoundError:
+            raise FileError(
+                ParserErrorCode.FILE_NOT_FOUND,
+                f"File not found: {file_path}",
+                file_path=file_path,
+            )
+        except json.JSONDecodeError as exc:
+            raise FormatError(
+                ParserErrorCode.MALFORMED_STRUCTURE,
+                f"Invalid JSON in animation frames: {exc}",
+                file_path=file_path,
+            ) from exc
+        except OSError as exc:
+            raise FileError(
+                ParserErrorCode.FILE_READ_ERROR,
+                f"Cannot read file: {exc}",
+                file_path=file_path,
+            ) from exc
 
         meta = data.get("meta", {})
         frames = data.get("frames", {})
