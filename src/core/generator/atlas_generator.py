@@ -372,6 +372,11 @@ class AtlasGenerator:
                 ),
             )
 
+            # Close source images after compositing to free memory
+            for img in images.values():
+                img.close()
+            images.clear()
+
             expanded_packed_frames = self._expand_packed_frames_with_duplicates(
                 pack_result.packed_frames,
                 duplicate_map,
