@@ -59,6 +59,9 @@ class JsonHashAtlasParser(BaseParser):
     ) -> List[Dict[str, Any]]:
         """Convert a frames hash to normalized sprite list.
 
+        Handles rotated sprites by swapping width/height so consumers always
+        see the original (un-rotated) dimensions.
+
         Args:
             frames: Dictionary mapping sprite names to frame metadata.
 
@@ -77,7 +80,11 @@ class JsonHashAtlasParser(BaseParser):
             source_size = entry.get("sourceSize", {})
             rotated = bool(entry.get("rotated", False))
 
-            sprite_data = {
+            # When rotated, atlas stores swapped dimensions — restore originals
+            if rotated:
+                frame_w, frame_h = frame_h, frame_w
+
+            sprite_data: Dict[str, Any] = {
                 "name": filename,
                 "x": frame_x,
                 "y": frame_y,
@@ -91,12 +98,46 @@ class JsonHashAtlasParser(BaseParser):
                 "pivotX": float(entry.get("pivot", {}).get("x", 0.5)),
                 "pivotY": float(entry.get("pivot", {}).get("y", 0.5)),
             }
+
+            duration = entry.get("duration")
+            if duration is not None:
+                sprite_data["duration"] = int(duration)
+
             sprites.append(sprite_data)
         return sprites
+
+    @classmethod
+    def parse_frame_tags(cls, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract frameTags from the meta block.
+
+        Supports ``forward``, ``reverse``, and ``pingpong`` directions.
+
+        Args:
+            data: Full parsed JSON document (with ``meta`` key).
+
+        Returns:
+            List of tag dicts with ``name``, ``from``, ``to``, ``direction``.
+        """
+        meta = data.get("meta", {})
+        raw_tags = meta.get("frameTags", [])
+        tags: List[Dict[str, Any]] = []
+        for tag in raw_tags:
+            tags.append(
+                {
+                    "name": tag.get("name", ""),
+                    "from": int(tag.get("from", 0)),
+                    "to": int(tag.get("to", 0)),
+                    "direction": tag.get("direction", "forward"),
+                }
+            )
+        return tags
 
     @staticmethod
     def parse_json_data(file_path: str) -> List[Dict[str, Any]]:
         """Parse a JSON hash atlas file and return sprite metadata.
+
+        Also parses ``meta.frameTags`` when present, attaching an
+        ``animation`` key to each sprite that falls within a tag range.
 
         Args:
             file_path: Path to the JSON file.
@@ -107,7 +148,21 @@ class JsonHashAtlasParser(BaseParser):
         with open(file_path, "r", encoding="utf-8") as json_file:
             data = json.load(json_file)
         frames = data.get("frames", {})
-        return JsonHashAtlasParser.parse_from_frames(frames)
+        sprites = JsonHashAtlasParser.parse_from_frames(frames)
+
+        # Apply frameTags as animation names
+        tags = JsonHashAtlasParser.parse_frame_tags(data)
+        if tags:
+            sprite_names = list(frames.keys())
+            name_to_index = {name: i for i, name in enumerate(sprite_names)}
+            for tag in tags:
+                for sprite in sprites:
+                    idx = name_to_index.get(sprite["name"])
+                    if idx is not None and tag["from"] <= idx <= tag["to"]:
+                        sprite["animation"] = tag["name"]
+                        sprite["direction"] = tag["direction"]
+
+        return sprites
 
 
 __all__ = ["JsonHashAtlasParser"]
