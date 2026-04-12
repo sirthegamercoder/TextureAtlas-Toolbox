@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from parsers.base_parser import BaseParser
 from parsers.parser_types import (
     ContentError,
+    FileError,
     FormatError,
     ParseResult,
     ParserErrorCode,
@@ -46,14 +47,27 @@ class TxtParser(BaseParser):
         """
         names: Set[str] = set()
         txt_path = os.path.join(self.directory, self.filename)
-        with open(txt_path, "r", encoding="utf-8") as txt_file:
-            for raw_line in txt_file:
-                line = raw_line.strip()
-                if " = " not in line:
-                    continue
-                name = line.split(" = ", 1)[0].strip()
-                sanitized_name = Utilities.strip_trailing_digits(name) or name
-                names.add(sanitized_name)
+        try:
+            with open(txt_path, "r", encoding="utf-8") as txt_file:
+                for raw_line in txt_file:
+                    line = raw_line.strip()
+                    if " = " not in line:
+                        continue
+                    name = line.split(" = ", 1)[0].strip()
+                    sanitized_name = Utilities.strip_trailing_digits(name) or name
+                    names.add(sanitized_name)
+        except FileNotFoundError:
+            raise FileError(
+                ParserErrorCode.FILE_NOT_FOUND,
+                f"TXT file not found: {txt_path}",
+                file_path=txt_path,
+            )
+        except OSError as exc:
+            raise FileError(
+                ParserErrorCode.FILE_READ_ERROR,
+                f"Cannot read TXT file: {exc}",
+                file_path=txt_path,
+            ) from exc
         return names
 
     @classmethod
