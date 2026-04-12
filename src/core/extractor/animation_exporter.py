@@ -91,23 +91,41 @@ class AnimationExporter:
         filename = settings.get("filename")
 
         if not filename:
+            # Use only the basename for the filename; folder structure
+            # is handled via sanitize_path_name on animation_name.
+            anim_basename = Utilities.basename_from_sprite_name(animation_name)
             filename = Utilities.format_filename(
                 settings.get("prefix"),
                 spritesheet_name,
-                animation_name,
+                anim_basename,
                 settings.get("filename_format"),
                 settings.get("replace_rules"),
                 settings.get("suffix"),
             )
 
-        if animation_format == "GIF":
-            self.save_gif(
-                images, filename, fps, delay, period, scale, threshold, settings
-            )
-        elif animation_format == "WebP":
-            self.save_webp(images, filename, fps, delay, period, scale, settings)
-        elif animation_format == "APNG":
-            self.save_apng(images, filename, fps, delay, period, scale, settings)
+        # When the animation name contains folder separators (e.g. "player/idle"),
+        # create nested subdirectories so files are organized hierarchically.
+        safe_subpath = Utilities.sanitize_path_name(animation_name)
+        parent_subdir = os.path.dirname(safe_subpath)
+        if parent_subdir:
+            effective_output_dir = os.path.join(self.output_dir, parent_subdir)
+            os.makedirs(effective_output_dir, exist_ok=True)
+        else:
+            effective_output_dir = self.output_dir
+
+        original_output_dir = self.output_dir
+        self.output_dir = effective_output_dir
+        try:
+            if animation_format == "GIF":
+                self.save_gif(
+                    images, filename, fps, delay, period, scale, threshold, settings
+                )
+            elif animation_format == "WebP":
+                self.save_webp(images, filename, fps, delay, period, scale, settings)
+            elif animation_format == "APNG":
+                self.save_apng(images, filename, fps, delay, period, scale, settings)
+        finally:
+            self.output_dir = original_output_dir
 
         anims_generated += 1
         return anims_generated

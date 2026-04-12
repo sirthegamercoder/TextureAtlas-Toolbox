@@ -71,7 +71,7 @@ class FrameExporter:
         frame_format = settings.get("frame_format", "PNG")
         frame_scale = settings.get("frame_scale", scale)
 
-        safe_animation_folder = Utilities.replace_invalid_chars(animation_name)
+        safe_animation_folder = Utilities.sanitize_path_name(animation_name)
         frames_folder = os.path.join(self.output_dir, safe_animation_folder)
         os.makedirs(frames_folder, exist_ok=True)
 
@@ -101,10 +101,11 @@ class FrameExporter:
 
         for index, frame in enumerate(image_tuples):
             if index in kept_frame_indices:
+                frame_name = Utilities.basename_from_sprite_name(frame[0])
                 formatted_frame_name = Utilities.format_filename(
                     settings.get("prefix"),
                     spritesheet_name,
-                    frame[0],
+                    frame_name,
                     settings.get("filename_format"),
                     settings.get("replace_rules"),
                     settings.get("suffix"),

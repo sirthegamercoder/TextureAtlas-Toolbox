@@ -699,15 +699,15 @@ class GenerateTabWidget(BaseTabWidget):
                                 sprite_region = canvas
 
                             # Save as temporary file
-                            frame_filename = f"{sprite_data['name']}{self.PNG_FORMAT}"
-                            # Sanitize filename
-                            import re
-
-                            frame_filename = re.sub(
-                                r'[<>:"/\\|?*]', "_", frame_filename
+                            # Preserve folder separators as subdirectories
+                            # (e.g. "player/idle0001.png" → player/idle0001.png)
+                            sanitized_name = Utilities.sanitize_path_name(
+                                sprite_data["name"]
                             )
+                            frame_filename = f"{sanitized_name}{self.PNG_FORMAT}"
 
                             temp_frame_path = temp_dir / frame_filename
+                            temp_frame_path.parent.mkdir(parents=True, exist_ok=True)
                             sprite_region.save(temp_frame_path, self.PNG_FORMAT_NAME)
 
                             # Add to animation and input frames list
