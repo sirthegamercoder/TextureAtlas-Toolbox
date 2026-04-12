@@ -572,6 +572,7 @@ class GenerateTabWidget(BaseTabWidget):
                 )
                 return
 
+        temp_dir = None
         try:
             # Parse the data file to extract frame information
             # Currently supports XML format, but can be extended for JSON/TXT formats
@@ -765,6 +766,11 @@ class GenerateTabWidget(BaseTabWidget):
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
         except Exception as e:
+            # Clean up temp directory on failure to prevent leaks
+            if temp_dir and temp_dir.exists():
+                import shutil
+
+                shutil.rmtree(temp_dir, ignore_errors=True)
             QMessageBox.critical(
                 self,
                 self.APP_NAME,
