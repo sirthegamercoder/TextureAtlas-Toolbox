@@ -278,7 +278,7 @@ class AtlasGenerator:
         if flip_y_hash not in result:
             result[flip_y_hash] = ("flip_y", False, True)
 
-        flip_xy_img = ImageOps.mirror(ImageOps.flip(img))
+        flip_xy_img = ImageOps.mirror(flip_y_img)
         flip_xy_hash = AtlasGenerator._compute_image_hash(flip_xy_img)
         if flip_xy_hash not in result:
             result[flip_xy_hash] = ("flip_xy", True, True)
