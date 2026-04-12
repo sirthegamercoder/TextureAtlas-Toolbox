@@ -74,6 +74,124 @@ SUPPORTED_TRIM_FORMATS = frozenset(
 )
 
 
+class AtlasImportWorker(QThread):
+    """Worker thread for importing frames from an existing atlas."""
+
+    progress_updated = Signal(int, int, str)
+    import_completed = Signal(dict)
+    import_failed = Signal(str)
+
+    def __init__(
+        self,
+        atlas_file,
+        sprites_data,
+        animation_groups,
+        temp_dir,
+        png_format,
+        png_format_name,
+    ):
+        super().__init__()
+        self.atlas_file = atlas_file
+        self.sprites_data = sprites_data
+        self.animation_groups = animation_groups
+        self.temp_dir = temp_dir
+        self.png_format = png_format
+        self.png_format_name = png_format_name
+
+    def run(self):
+        """Extract frames from atlas in background thread."""
+        try:
+            atlas_image = Image.open(self.atlas_file)
+
+            results = {}
+            total_sprites = sum(
+                len(frames) for frames in self.animation_groups.values()
+            )
+            processed = 0
+
+            for animation_name, frames_data in self.animation_groups.items():
+                frames_data.sort(
+                    key=lambda x: Utilities.natural_sort_key(x["name"])
+                )
+
+                frame_paths = []
+                for sprite_data in frames_data:
+                    try:
+                        x, y = sprite_data["x"], sprite_data["y"]
+                        width, height = sprite_data["width"], sprite_data["height"]
+                        rotated = sprite_data.get("rotated", False)
+
+                        sprite_region = atlas_image.crop(
+                            (x, y, x + width, y + height)
+                        )
+
+                        if rotated:
+                            sprite_region = sprite_region.transpose(
+                                Image.Transpose.ROTATE_90
+                            )
+
+                        frame_x = int(sprite_data.get("frameX", 0))
+                        frame_y = int(sprite_data.get("frameY", 0))
+                        frame_w = int(
+                            sprite_data.get("frameWidth", sprite_region.width)
+                        )
+                        frame_h = int(
+                            sprite_data.get("frameHeight", sprite_region.height)
+                        )
+
+                        if (
+                            frame_x != 0
+                            or frame_y != 0
+                            or frame_w != sprite_region.width
+                            or frame_h != sprite_region.height
+                        ):
+                            dest_x = max(0, -frame_x)
+                            dest_y = max(0, -frame_y)
+                            required_w = max(frame_w, dest_x + sprite_region.width)
+                            required_h = max(frame_h, dest_y + sprite_region.height)
+
+                            canvas = Image.new(
+                                "RGBA", (required_w, required_h), (0, 0, 0, 0)
+                            )
+                            canvas.paste(sprite_region, (dest_x, dest_y))
+                            sprite_region = canvas
+
+                        sanitized_name = Utilities.sanitize_path_name(
+                            sprite_data["name"]
+                        )
+                        frame_filename = f"{sanitized_name}{self.png_format}"
+
+                        temp_frame_path = self.temp_dir / frame_filename
+                        temp_frame_path.parent.mkdir(parents=True, exist_ok=True)
+                        sprite_region.save(temp_frame_path, self.png_format_name)
+
+                        frame_paths.append(str(temp_frame_path))
+
+                    except Exception as e:
+                        print(f"Error extracting frame {sprite_data['name']}: {e}")
+                        continue
+
+                    processed += 1
+                    if processed % max(total_sprites // 20, 1) == 0:
+                        self.progress_updated.emit(
+                            processed,
+                            total_sprites,
+                            f"Extracting frame {processed}/{total_sprites}...",
+                        )
+
+                results[animation_name] = frame_paths
+
+            atlas_image.close()
+
+            self.progress_updated.emit(
+                total_sprites, total_sprites, "Import complete"
+            )
+            self.import_completed.emit(results)
+
+        except Exception as e:
+            self.import_failed.emit(str(e))
+
+
 class GeneratorWorker(QThread):
     """Worker thread for atlas generation."""
 
@@ -572,210 +690,163 @@ class GenerateTabWidget(BaseTabWidget):
                 )
                 return
 
-        temp_dir = None
+        # Validate prerequisites on main thread before spawning worker
         try:
-            # Parse the data file to extract frame information
-            # Currently supports XML format, but can be extended for JSON/TXT formats
             sprites_data = XmlParser.parse_xml_data(data_file)
-
-            if not sprites_data:
-                QMessageBox.warning(
-                    self,
-                    self.APP_NAME,
-                    self.tr("No frames found in the selected atlas data file."),
-                )
-                return
-
-            # Load the atlas image
-            if not PIL_AVAILABLE:
-                QMessageBox.critical(
-                    self,
-                    self.APP_NAME,
-                    self.tr(
-                        "PIL (Pillow) is required to extract frames from atlas files."
-                    ),
-                )
-                return
-
-            atlas_image = Image.open(atlas_file)
-
-            # Create a temporary directory for extracted frames
-            import tempfile
-
-            temp_dir = Path(tempfile.mkdtemp(prefix="atlas_frames_"))
-
-            # Group frames by animation name.
-            # When smart grouping is enabled, batch-aware analysis detects
-            # whether sub-indexed sequences (Anim10001, Anim20001) are
-            # separate animations or a continuous sequence.
-            use_smart_grouping = self.main_app.app_config.get("interface", {}).get(
-                "smart_animation_grouping", True
-            )
-
-            if use_smart_grouping:
-                name_groups = Utilities.group_names_by_animation(
-                    [s["name"] for s in sprites_data]
-                )
-                name_to_sprites: dict[str, list] = {}
-                for sprite_data in sprites_data:
-                    name_to_sprites.setdefault(sprite_data["name"], []).append(
-                        sprite_data
-                    )
-
-                animation_groups: dict[str, list] = {}
-                for animation_name, frame_names in name_groups.items():
-                    group: list = []
-                    for fname in frame_names:
-                        group.extend(name_to_sprites.get(fname, []))
-                    animation_groups[animation_name] = group
-            else:
-                # Legacy per-name grouping
-                animation_groups = {}
-                for sprite_data in sprites_data:
-                    animation_name = self._extract_animation_name(sprite_data["name"])
-                    animation_groups.setdefault(animation_name, []).append(sprite_data)
-
-            # Create animation groups and extract frames
-            total_frames_added = 0
-            for animation_name, frames_data in animation_groups.items():
-                try:
-                    # Create animation group
-                    self.animation_tree.add_animation_group(animation_name)
-
-                    # Sort frames by name using natural sort for proper numeric order.
-                    # E.g. "animframe 2" should come before "animframe 10".
-                    frames_data.sort(
-                        key=lambda x: Utilities.natural_sort_key(x["name"])
-                    )
-
-                    frames_added_to_animation = 0
-                    for sprite_data in frames_data:
-                        try:
-                            # Extract frame from atlas
-                            x, y = sprite_data["x"], sprite_data["y"]
-                            width, height = sprite_data["width"], sprite_data["height"]
-                            rotated = sprite_data.get("rotated", False)
-
-                            # Extract the sprite region
-                            sprite_region = atlas_image.crop(
-                                (x, y, x + width, y + height)
-                            )
-
-                            # Handle rotation if needed
-                            # Use ROTATE_90 (90° counter-clockwise) to reverse
-                            # the standard TexturePacker ROTATE_270 (90° clockwise)
-                            if rotated:
-                                sprite_region = sprite_region.transpose(
-                                    Image.Transpose.ROTATE_90
-                                )
-
-                            # Rebuild logical canvas when offsets are present
-                            frame_x = int(sprite_data.get("frameX", 0))
-                            frame_y = int(sprite_data.get("frameY", 0))
-                            frame_w = int(
-                                sprite_data.get("frameWidth", sprite_region.width)
-                            )
-                            frame_h = int(
-                                sprite_data.get("frameHeight", sprite_region.height)
-                            )
-
-                            if (
-                                frame_x != 0
-                                or frame_y != 0
-                                or frame_w != sprite_region.width
-                                or frame_h != sprite_region.height
-                            ):
-                                # Calculate destination position
-                                dest_x = max(0, -frame_x)
-                                dest_y = max(0, -frame_y)
-
-                                # Calculate required canvas size to fit sprite
-                                # Some atlases have malformed metadata where
-                                # sprite + offset exceeds frame dimensions
-                                required_w = max(frame_w, dest_x + sprite_region.width)
-                                required_h = max(frame_h, dest_y + sprite_region.height)
-
-                                canvas = Image.new(
-                                    "RGBA", (required_w, required_h), (0, 0, 0, 0)
-                                )
-                                canvas.paste(sprite_region, (dest_x, dest_y))
-                                sprite_region = canvas
-
-                            # Save as temporary file
-                            # Preserve folder separators as subdirectories
-                            # (e.g. "player/idle0001.png" → player/idle0001.png)
-                            sanitized_name = Utilities.sanitize_path_name(
-                                sprite_data["name"]
-                            )
-                            frame_filename = f"{sanitized_name}{self.PNG_FORMAT}"
-
-                            temp_frame_path = temp_dir / frame_filename
-                            temp_frame_path.parent.mkdir(parents=True, exist_ok=True)
-                            sprite_region.save(temp_frame_path, self.PNG_FORMAT_NAME)
-
-                            # Add to animation and input frames list
-                            temp_frame_str = str(temp_frame_path)
-                            if not self.is_frame_already_added(temp_frame_str):
-                                self.animation_tree.add_frame_to_animation(
-                                    animation_name, temp_frame_str
-                                )
-                                self.input_frames.append(temp_frame_str)
-                                frames_added_to_animation += 1
-
-                        except Exception as e:
-                            print(f"Error extracting frame {sprite_data['name']}: {e}")
-                            continue
-
-                    total_frames_added += frames_added_to_animation
-                    print(
-                        f"Added {frames_added_to_animation} frames to animation '{animation_name}'"
-                    )
-
-                except Exception as e:
-                    print(f"Error processing animation '{animation_name}': {e}")
-                    continue
-
-            # Close the atlas image
-            atlas_image.close()
-
-            if total_frames_added > 0:
-                QMessageBox.information(
-                    self,
-                    self.APP_NAME,
-                    self.tr(
-                        "Successfully imported {0} frames from atlas '{1}' into {2} animations."
-                    ).format(total_frames_added, atlas_name, len(animation_groups)),
-                )
-
-                # Store temp directory for cleanup later
-                if not hasattr(self, "temp_atlas_dirs"):
-                    self.temp_atlas_dirs = []
-                self.temp_atlas_dirs.append(temp_dir)
-
-                self.update_frame_info()
-                self.update_generate_button_state()
-            else:
-                QMessageBox.information(
-                    self,
-                    self.APP_NAME,
-                    self.tr("All frames from this atlas were already added."),
-                )
-                # Clean up empty temp directory
-                import shutil
-
-                shutil.rmtree(temp_dir, ignore_errors=True)
-
         except Exception as e:
-            # Clean up temp directory on failure to prevent leaks
-            if temp_dir and temp_dir.exists():
-                import shutil
-
-                shutil.rmtree(temp_dir, ignore_errors=True)
             QMessageBox.critical(
                 self,
                 self.APP_NAME,
                 self.tr("Error importing atlas: {0}").format(str(e)),
             )
+            return
+
+        if not sprites_data:
+            QMessageBox.warning(
+                self,
+                self.APP_NAME,
+                self.tr("No frames found in the selected atlas data file."),
+            )
+            return
+
+        if not PIL_AVAILABLE:
+            QMessageBox.critical(
+                self,
+                self.APP_NAME,
+                self.tr(
+                    "PIL (Pillow) is required to extract frames from atlas files."
+                ),
+            )
+            return
+
+        # Group frames by animation name on main thread (lightweight)
+        use_smart_grouping = self.main_app.app_config.get("interface", {}).get(
+            "smart_animation_grouping", True
+        )
+
+        if use_smart_grouping:
+            name_groups = Utilities.group_names_by_animation(
+                [s["name"] for s in sprites_data]
+            )
+            name_to_sprites: dict[str, list] = {}
+            for sprite_data in sprites_data:
+                name_to_sprites.setdefault(sprite_data["name"], []).append(
+                    sprite_data
+                )
+
+            animation_groups: dict[str, list] = {}
+            for animation_name, frame_names in name_groups.items():
+                group: list = []
+                for fname in frame_names:
+                    group.extend(name_to_sprites.get(fname, []))
+                animation_groups[animation_name] = group
+        else:
+            animation_groups = {}
+            for sprite_data in sprites_data:
+                animation_name = self._extract_animation_name(sprite_data["name"])
+                animation_groups.setdefault(animation_name, []).append(sprite_data)
+
+        # Create temp dir and launch worker for heavy I/O
+        import tempfile
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="atlas_frames_"))
+
+        self._import_worker = AtlasImportWorker(
+            atlas_file=atlas_file,
+            sprites_data=sprites_data,
+            animation_groups=animation_groups,
+            temp_dir=temp_dir,
+            png_format=self.PNG_FORMAT,
+            png_format_name=self.PNG_FORMAT_NAME,
+        )
+        self._import_atlas_name = atlas_name
+        self._import_temp_dir = temp_dir
+        self._import_animation_groups = animation_groups
+
+        self._import_worker.progress_updated.connect(self._on_import_progress)
+        self._import_worker.import_completed.connect(self._on_import_completed)
+        self._import_worker.import_failed.connect(self._on_import_failed)
+
+        self.add_existing_atlas_button.setEnabled(False)
+        self.status_label.setText(self.tr("Importing atlas..."))
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+
+        self._import_worker.start()
+
+    def _on_import_progress(self, current, total, message):
+        """Handle progress updates from atlas import worker."""
+        if total > 0:
+            self.progress_bar.setValue(int(100 * current / total))
+        self.status_label.setText(message)
+
+    def _on_import_completed(self, results):
+        """Handle successful atlas import from worker thread."""
+        total_frames_added = 0
+        for animation_name, frame_paths in results.items():
+            if not frame_paths:
+                continue
+            self.animation_tree.add_animation_group(animation_name)
+            for frame_path in frame_paths:
+                if not self.is_frame_already_added(frame_path):
+                    self.animation_tree.add_frame_to_animation(
+                        animation_name, frame_path
+                    )
+                    self.input_frames.append(frame_path)
+                    total_frames_added += 1
+
+        self.add_existing_atlas_button.setEnabled(True)
+        self.progress_bar.setValue(0)
+
+        if total_frames_added > 0:
+            QMessageBox.information(
+                self,
+                self.APP_NAME,
+                self.tr(
+                    "Successfully imported {0} frames from atlas '{1}' into {2} animations."
+                ).format(
+                    total_frames_added,
+                    self._import_atlas_name,
+                    len(self._import_animation_groups),
+                ),
+            )
+
+            if not hasattr(self, "temp_atlas_dirs"):
+                self.temp_atlas_dirs = []
+            self.temp_atlas_dirs.append(self._import_temp_dir)
+
+            self.update_frame_info()
+            self.update_generate_button_state()
+        else:
+            QMessageBox.information(
+                self,
+                self.APP_NAME,
+                self.tr("All frames from this atlas were already added."),
+            )
+            import shutil
+
+            shutil.rmtree(self._import_temp_dir, ignore_errors=True)
+
+        self.status_label.setText("")
+        self._import_worker = None
+
+    def _on_import_failed(self, error_msg):
+        """Handle failed atlas import from worker thread."""
+        self.add_existing_atlas_button.setEnabled(True)
+        self.progress_bar.setValue(0)
+        self.status_label.setText("")
+
+        if self._import_temp_dir and self._import_temp_dir.exists():
+            import shutil
+
+            shutil.rmtree(self._import_temp_dir, ignore_errors=True)
+
+        QMessageBox.critical(
+            self,
+            self.APP_NAME,
+            self.tr("Error importing atlas: {0}").format(error_msg),
+        )
+        self._import_worker = None
 
     def _configure_packer_combo(self):
         """Populate the packer combo box with available algorithms from the registry."""
