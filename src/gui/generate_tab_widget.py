@@ -313,6 +313,7 @@ class GenerateTabWidget(BaseTabWidget):
     def _init_state(self):
         """Initialize instance state before UI setup."""
         self.input_frames = []
+        self._added_frame_paths = set()
         self.output_path = ""
         self.worker = None
         self.animation_groups = {}
@@ -603,6 +604,7 @@ class GenerateTabWidget(BaseTabWidget):
                                     actual_animation_name, str(file_path)
                                 )
                                 self.input_frames.append(str(file_path))
+                                self._added_frame_paths.add(str(file_path))
 
                         animations_created += 1
 
@@ -793,6 +795,7 @@ class GenerateTabWidget(BaseTabWidget):
                         animation_name, frame_path
                     )
                     self.input_frames.append(frame_path)
+                    self._added_frame_paths.add(frame_path)
                     total_frames_added += 1
 
         self.add_existing_atlas_button.setEnabled(True)
@@ -1300,6 +1303,7 @@ class GenerateTabWidget(BaseTabWidget):
             if not self.is_frame_already_added(file_path):
                 self.animation_tree.add_frame_to_animation(default_animation, file_path)
                 self.input_frames.append(file_path)
+                self._added_frame_paths.add(file_path)
 
         self.update_frame_info()
         self.update_generate_button_state()
@@ -1316,20 +1320,14 @@ class GenerateTabWidget(BaseTabWidget):
             if not self.is_frame_already_added(file_path):
                 self.animation_tree.add_frame_to_animation(animation_name, file_path)
                 self.input_frames.append(file_path)
+                self._added_frame_paths.add(file_path)
 
         self.update_frame_info()
         self.update_generate_button_state()
 
     def is_frame_already_added(self, file_path):
         """Check if a frame is already added to any animation."""
-        animations = self.animation_tree.get_animation_groups()
-
-        for animation_name, frames in animations.items():
-            for frame in frames:
-                if frame["path"] == file_path:
-                    return True
-
-        return False
+        return file_path in self._added_frame_paths
 
     def clear_frames(self):
         """Clear all frames from all animations."""
@@ -1346,6 +1344,7 @@ class GenerateTabWidget(BaseTabWidget):
             self.temp_atlas_dirs.clear()
 
         self.input_frames.clear()
+        self._added_frame_paths.clear()
         self.animation_tree.clear_all_animations()
         self.update_frame_info()
         self.update_generate_button_state()
