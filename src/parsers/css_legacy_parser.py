@@ -10,6 +10,7 @@ import re
 from typing import Callable, Dict, List, Optional, Set
 
 from parsers.base_parser import BaseParser
+from parsers.parser_types import FileError, ParserErrorCode
 from utils.utilities import Utilities
 
 
@@ -76,8 +77,21 @@ class CssLegacyParser(BaseParser):
             List of sprite dicts with keys: name, x, y, width, height,
             frameX, frameY, frameWidth, frameHeight, rotated.
         """
-        with open(file_path, "r", encoding="utf-8") as css_file:
-            content = css_file.read()
+        try:
+            with open(file_path, "r", encoding="utf-8") as css_file:
+                content = css_file.read()
+        except FileNotFoundError:
+            raise FileError(
+                ParserErrorCode.FILE_NOT_FOUND,
+                f"CSS file not found: {file_path}",
+                file_path=file_path,
+            )
+        except OSError as exc:
+            raise FileError(
+                ParserErrorCode.FILE_READ_ERROR,
+                f"Cannot read CSS file: {exc}",
+                file_path=file_path,
+            ) from exc
 
         sprites: List[Dict[str, int]] = []
         for match in _CLASS_BLOCK_RE.finditer(content):
