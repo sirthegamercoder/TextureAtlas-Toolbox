@@ -156,6 +156,20 @@ class AtlasGenerator:
             self._progress_callback(current, total, message)
 
     @staticmethod
+    def _format_sprite_name(export_format: str, anim_name: str, idx: int) -> str:
+        """Build a sprite name using the numbering convention for *export_format*.
+
+        Starling/Sparrow XML uses zero-padded 4-digit, no separator (walk0000).
+        TexturePacker JSON formats use underscore + 2-digit 1-based (walk_01).
+        All other formats fall back to underscore + 4-digit 0-based (walk_0000).
+        """
+        if export_format == "starling-xml":
+            return f"{anim_name}{idx:04d}"
+        if export_format in ("json-hash", "json-array"):
+            return f"{anim_name}_{idx + 1:02d}"
+        return f"{anim_name}_{idx:04d}"
+
+    @staticmethod
     def _trim_image(img: Image.Image) -> Tuple[Image.Image, int, int, int, int]:
         """Trim transparent edges from an image.
 
@@ -294,6 +308,7 @@ class AtlasGenerator:
                 animation_groups,
                 trim_sprites=options.trim_sprites,
                 allow_flip=options.allow_flip,
+                export_format=options.export_format,
             )
             unique_frames = load_result["unique_frames"]
             images = load_result["images"]
@@ -363,6 +378,7 @@ class AtlasGenerator:
         animation_groups: Dict[str, List[str]],
         trim_sprites: bool = False,
         allow_flip: bool = False,
+        export_format: str = "starling-xml",
     ) -> Dict[str, Any]:
         """Load images with duplicate and flip-variant detection.
 
@@ -370,6 +386,7 @@ class AtlasGenerator:
             animation_groups: Dict mapping animation names to frame path lists.
             trim_sprites: If True, trim transparent edges from sprites.
             allow_flip: If True, detect flipped variants as duplicates.
+            export_format: Target metadata format (controls naming convention).
 
         Returns:
             Dict with keys: unique_frames, images, duplicate_map, all_frame_data.
@@ -399,8 +416,8 @@ class AtlasGenerator:
                             original_height,
                         ) = self._trim_image(img)
 
-                    frame_id = f"{anim_name}_{idx:04d}"
-                    sprite_name = f"{anim_name}{idx:04d}"
+                    frame_id = self._format_sprite_name(export_format, anim_name, idx)
+                    sprite_name = frame_id
 
                     frame_input = FrameInput(
                         id=frame_id,
@@ -520,11 +537,13 @@ class AtlasGenerator:
     def _load_images(
         self,
         animation_groups: Dict[str, List[str]],
+        export_format: str = "starling-xml",
     ) -> Tuple[List[FrameInput], Dict[str, Image.Image]]:
         """Load images from animation groups without deduplication.
 
         Args:
             animation_groups: Dict mapping animation names to frame path lists.
+            export_format: Target metadata format (controls naming convention).
 
         Returns:
             Tuple of (frame inputs, dict mapping frame IDs to images).
@@ -539,8 +558,8 @@ class AtlasGenerator:
                     if img.mode != "RGBA":
                         img = img.convert("RGBA")
 
-                    frame_id = f"{anim_name}_{idx:04d}"
-                    sprite_name = f"{anim_name}{idx:04d}"
+                    frame_id = self._format_sprite_name(export_format, anim_name, idx)
+                    sprite_name = frame_id
 
                     frame_input = FrameInput(
                         id=frame_id,
