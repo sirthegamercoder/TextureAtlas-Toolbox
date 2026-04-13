@@ -73,6 +73,23 @@ SUPPORTED_TRIM_FORMATS = frozenset(
     }
 )
 
+# Formats whose target engines commonly consume GPU-compressed textures.
+# GPU compression controls are only shown when one of these formats is selected.
+SUPPORTED_GPU_COMPRESSION_FORMATS = frozenset(
+    {
+        "json-hash",  # PixiJS, Phaser, Cocos2d-js (WebGL compressed textures)
+        "json-array",  # PixiJS, Phaser (WebGL compressed textures)
+        "spine",  # Spine runtime supports GPU textures
+        "phaser3",  # WebGL engine, compressed texture extensions
+        "plist",  # Cocos2d supports PVRTC/ETC textures
+        "godot",  # Godot natively supports DDS/KTX2
+        "egret2d",  # Egret2D game engine
+        "paper2d",  # Unreal Engine uses DDS
+        "unity",  # Unity imports DDS/KTX textures
+        "gdx",  # libGDX supports GPU textures
+    }
+)
+
 
 class AtlasImportWorker(QThread):
     """Worker thread for importing frames from an existing atlas."""
@@ -101,7 +118,13 @@ class AtlasImportWorker(QThread):
     def run(self):
         """Extract frames from atlas in background thread."""
         try:
-            atlas_image = Image.open(self.atlas_file)
+            ext = Path(self.atlas_file).suffix.lower()
+            if ext in (".dds", ".ktx2"):
+                from core.optimizer.texture_compress import load_gpu_texture
+
+                atlas_image = load_gpu_texture(self.atlas_file)
+            else:
+                atlas_image = Image.open(self.atlas_file)
 
             results = {}
             total_sprites = sum(
@@ -223,6 +246,9 @@ class GeneratorWorker(QThread):
                 image_format=self.atlas_settings.get("image_format", "PNG").lower(),
                 export_format=self.output_format,
                 compression_settings=self.atlas_settings.get("compression_settings"),
+                texture_format=self.atlas_settings.get("texture_format"),
+                texture_container=self.atlas_settings.get("texture_container", "dds"),
+                generate_mipmaps=self.atlas_settings.get("generate_mipmaps", False),
             )
 
             # Handle manual sizing
@@ -324,6 +350,7 @@ class GenerateTabWidget(BaseTabWidget):
             ".dds": "DDS",
             ".jpeg": "JPEG",
             ".jpg": "JPEG",
+            ".ktx2": "KTX2",
             ".tga": "TGA",
             ".tif": "TIFF",
             ".tiff": "TIFF",
@@ -524,6 +551,9 @@ class GenerateTabWidget(BaseTabWidget):
 
         # Create trim sprites checkbox
         self._setup_trim_checkbox()
+
+        # Create GPU texture compression controls
+        self._setup_gpu_compression_controls()
 
     def setup_connections(self):
         """Set up signal-slot connections."""
@@ -947,6 +977,20 @@ class GenerateTabWidget(BaseTabWidget):
         if "trim_sprites" in defaults:
             self.trim_sprites_check.setChecked(defaults["trim_sprites"])
 
+        # Apply GPU texture compression defaults
+        if "texture_format" in defaults:
+            idx = self.gpu_format_combo.findData(defaults["texture_format"])
+            if idx >= 0:
+                self.gpu_format_combo.setCurrentIndex(idx)
+
+        if "texture_container" in defaults:
+            idx = self.gpu_container_combo.findData(defaults["texture_container"])
+            if idx >= 0:
+                self.gpu_container_combo.setCurrentIndex(idx)
+
+        if "generate_mipmaps" in defaults:
+            self.gpu_mipmap_check.setChecked(defaults["generate_mipmaps"])
+
     def _setup_heuristic_combo(self):
         """Create and insert the heuristic combo box and compression button."""
         # Create label and combo box for heuristic selection
@@ -1111,6 +1155,170 @@ class GenerateTabWidget(BaseTabWidget):
         # Update heuristic combo box based on selected algorithm
         self._update_heuristic_combo(key)
 
+    def _setup_gpu_compression_controls(self):
+        """Create and insert GPU texture compression controls.
+
+        Adds a texture format combo, container combo, and mipmap checkbox
+        into the settings grid layout.  Visibility is gated by atlas type
+        in ``_update_rotation_flip_trim_state``.
+        """
+        from utils.combo_options import (
+            TEXTURE_COMPRESSION_OPTIONS,
+            TEXTURE_CONTAINER_OPTIONS,
+        )
+
+        # Texture format combo
+        self.gpu_format_label = QLabel(self.tr("GPU Compression"))
+        self.gpu_format_combo = QComboBox()
+        self.gpu_format_combo.setMinimumWidth(140)
+        for opt in TEXTURE_COMPRESSION_OPTIONS:
+            self.gpu_format_combo.addItem(self.tr(opt.display_key), opt.internal)
+        self.gpu_format_combo.setCurrentIndex(0)  # "None"
+        self.gpu_format_combo.setToolTip(
+            self.tr(
+                "Compress the atlas into a GPU-ready block format.\n\n"
+                "Requires the etcpak package (pip install etcpak) for\n"
+                "BC1/BC3/BC7/ETC formats, or external CLI tools for ASTC/PVRTC.\n\n"
+                "Select 'None' to save a regular image instead."
+            )
+        )
+        self.gpu_format_combo.currentIndexChanged.connect(self._on_gpu_format_changed)
+
+        # Container combo
+        self.gpu_container_label = QLabel(self.tr("Container"))
+        self.gpu_container_combo = QComboBox()
+        self.gpu_container_combo.setMinimumWidth(140)
+        for opt in TEXTURE_CONTAINER_OPTIONS:
+            self.gpu_container_combo.addItem(self.tr(opt.display_key), opt.internal)
+        self.gpu_container_combo.setCurrentIndex(0)  # DDS
+        self.gpu_container_combo.setToolTip(
+            self.tr(
+                "File container for the compressed texture.\n\n"
+                "DDS — DirectDraw Surface, widely supported on desktop and consoles.\n"
+                "KTX2 — Khronos Texture 2, supports all formats including mobile."
+            )
+        )
+
+        # Mipmap checkbox
+        self.gpu_mipmap_check = QCheckBox(self.tr("Generate Mipmaps"))
+        self.gpu_mipmap_check.setChecked(False)
+        self.gpu_mipmap_check.setToolTip(
+            self.tr(
+                "Generate a full mipmap chain for the atlas texture.\n\n"
+                "Mipmaps improve rendering quality when the texture is\n"
+                "displayed smaller than its native resolution and can\n"
+                "reduce aliasing artifacts."
+            )
+        )
+
+        # Insert into grid layout after the compression button (row 8)
+        packer_combo = self.packer_method_combobox
+        parent_widget = packer_combo.parent()
+        inserted = False
+        if parent_widget and parent_widget.layout():
+            layout = parent_widget.layout()
+            from PySide6.QtWidgets import QGridLayout
+
+            if isinstance(layout, QGridLayout):
+                layout.addWidget(self.gpu_format_label, 9, 0)
+                layout.addWidget(self.gpu_format_combo, 9, 2)
+                layout.addWidget(self.gpu_container_label, 10, 0)
+                layout.addWidget(self.gpu_container_combo, 10, 2)
+                layout.addWidget(self.gpu_mipmap_check, 11, 2)
+                inserted = True
+
+        if not inserted:
+            self.gpu_format_label.setVisible(False)
+            self.gpu_format_combo.setVisible(False)
+            self.gpu_container_label.setVisible(False)
+            self.gpu_container_combo.setVisible(False)
+            self.gpu_mipmap_check.setVisible(False)
+
+        # Start hidden — shown only for game-engine formats
+        self._set_gpu_controls_visible(False)
+
+    def _set_gpu_controls_visible(self, visible: bool):
+        """Show or hide all GPU texture compression controls."""
+        for widget in (
+            self.gpu_format_label,
+            self.gpu_format_combo,
+            self.gpu_container_label,
+            self.gpu_container_combo,
+            self.gpu_mipmap_check,
+        ):
+            widget.setVisible(visible)
+        # Container and mipmap only visible when a format is selected
+        if visible:
+            self._on_gpu_format_changed()
+
+    def _on_gpu_format_changed(self, _index=None):
+        """Show/hide container and mipmap controls based on format selection.
+
+        When a GPU format is active the padding spinbox is locked to at
+        least the format's block size so compressed blocks never straddle
+        two different sprites.
+        """
+        from core.optimizer.constants import TextureFormat
+
+        fmt = self.gpu_format_combo.currentData()
+        has_format = fmt is not None and fmt != "none"
+        self.gpu_container_label.setVisible(has_format)
+        self.gpu_container_combo.setVisible(has_format)
+        self.gpu_mipmap_check.setVisible(has_format)
+
+        # Lock / unlock padding spinbox
+        if has_format:
+            block_size = TextureFormat(fmt).block_size
+            # Remember the user's value so we can restore it later
+            if getattr(self, "_padding_before_gpu", None) is None:
+                self._padding_before_gpu = self.padding_spin.value()
+            self.padding_spin.setMinimum(block_size)
+            if self.padding_spin.value() < block_size:
+                self.padding_spin.setValue(block_size)
+            self.padding_spin.setReadOnly(True)
+            self.padding_spin.setToolTip(
+                self.tr(
+                    "Padding is locked to {0} px (block size) while GPU "
+                    "compression is active."
+                ).format(block_size)
+            )
+        else:
+            self.padding_spin.setMinimum(0)
+            self.padding_spin.setReadOnly(False)
+            if getattr(self, "_padding_before_gpu", None) is not None:
+                self.padding_spin.setValue(self._padding_before_gpu)
+                self._padding_before_gpu = None
+            self.padding_spin.setToolTip(
+                self.tr(
+                    "Pixels of padding between sprites.\n\n"
+                    "Padding helps prevent texture bleeding during rendering,\n"
+                    "especially when using texture filtering or mipmaps."
+                )
+            )
+
+        # Show a one-time disclaimer when a GPU format is first selected
+        if has_format and not getattr(self, "_gpu_disclaimer_shown", False):
+            self._gpu_disclaimer_shown = True
+            QMessageBox.information(
+                self,
+                self.tr("GPU Texture Compression"),
+                self.tr(
+                    "GPU texture compression produces hardware-specific formats "
+                    "(DDS / KTX2) that are <b>not</b> regular image files.\n\n"
+                    "Only use this when you know your target engine or renderer "
+                    "supports the chosen format. Incorrect settings can produce "
+                    "files that appear corrupted or fail to load.\n\n"
+                    "Key points:\n"
+                    "• Padding will be automatically raised to at least the "
+                    "block size (typically 4 px) to prevent cross-sprite "
+                    "bleeding in compressed blocks.\n"
+                    "• DDS containers only support BC (DXT) formats; mobile "
+                    "formats (ETC, ASTC, PVRTC) require KTX2.\n"
+                    "• ASTC and PVRTC need external CLI tools installed "
+                    "separately (astcenc / PVRTexToolCLI)."
+                ),
+            )
+
     def _setup_trim_checkbox(self):
         """Create and insert the trim sprites checkbox."""
         self.trim_sprites_check = QCheckBox(self.tr(CheckBoxLabels.TRIM_SPRITES))
@@ -1155,9 +1363,13 @@ class GenerateTabWidget(BaseTabWidget):
         """Update rotation, flip, and trim checkboxes based on selected atlas format.
 
         Enables/disables checkboxes based on format support and shows warnings
-        for non-standard features.
+        for non-standard features.  Also updates the animation tree's frame
+        numbering convention to match the chosen format.
         """
         format_key, _ = self._get_selected_export_format()
+
+        # Update tree numbering convention
+        self.animation_tree.set_export_format(format_key)
 
         # Check format support for rotation
         supports_rotation = format_key in SUPPORTED_ROTATION_FORMATS
@@ -1198,6 +1410,13 @@ class GenerateTabWidget(BaseTabWidget):
                     "Only Sparrow/Starling XML with HaxeFlixel supports flip attributes."
                 ).format(format_key)
             )
+
+        # Check format support for GPU texture compression
+        supports_gpu = format_key in SUPPORTED_GPU_COMPRESSION_FORMATS
+        if hasattr(self, "gpu_format_combo"):
+            self._set_gpu_controls_visible(supports_gpu)
+            if not supports_gpu:
+                self.gpu_format_combo.setCurrentIndex(0)  # Reset to "None"
 
         # Check format support for trim (requires offset metadata storage)
         supports_trim = format_key in SUPPORTED_TRIM_FORMATS
@@ -1493,6 +1712,16 @@ class GenerateTabWidget(BaseTabWidget):
 
         # Add compression settings to atlas_settings
         atlas_settings["compression_settings"] = self._get_compression_settings()
+
+        # Add GPU texture compression settings
+        if hasattr(self, "gpu_format_combo"):
+            gpu_fmt = self.gpu_format_combo.currentData()
+            if gpu_fmt and gpu_fmt != "none":
+                atlas_settings["texture_format"] = gpu_fmt
+                atlas_settings["texture_container"] = (
+                    self.gpu_container_combo.currentData() or "dds"
+                )
+                atlas_settings["generate_mipmaps"] = self.gpu_mipmap_check.isChecked()
 
         # Create a dummy input_frames list for the worker (for compatibility)
         all_input_frames = []

@@ -26,6 +26,8 @@ from packers import (
     get_packer,
     list_algorithms,
 )
+from core.optimizer.constants import TextureContainer, TextureFormat
+from core.optimizer.texture_compress import TextureCompressor
 from exporters.exporter_registry import ExporterRegistry
 from exporters.exporter_types import GeneratorMetadata
 from utils.version import APP_VERSION
@@ -51,6 +53,9 @@ class GeneratorOptions:
         image_format: Output image format (png, webp, etc.).
         export_format: Metadata format key (e.g., 'starling-xml', 'json-hash').
         compression_settings: Format-specific compression options dict.
+        texture_format: GPU texture compression format (None = disabled).
+        texture_container: Container for GPU-compressed output (dds or ktx2).
+        generate_mipmaps: Whether to generate mipmaps for GPU textures.
     """
 
     algorithm: str = "maxrects"
@@ -68,6 +73,9 @@ class GeneratorOptions:
     image_format: str = "png"
     export_format: str = "starling-xml"
     compression_settings: Optional[Dict[str, Any]] = None
+    texture_format: Optional[str] = None
+    texture_container: str = "dds"
+    generate_mipmaps: bool = False
 
     def to_packer_options(self) -> PackerOptions:
         """Convert to PackerOptions for the packer system."""
@@ -81,10 +89,17 @@ class GeneratorOptions:
         }
         expand = strategy_map.get(self.expand_strategy, ExpandStrategy.SHORT_SIDE)
 
+        # When GPU compression is active, ensure padding >= block size
+        # so no two sprites share a compressed block.
+        padding = self.padding
+        if self.texture_format:
+            block_size = TextureFormat(self.texture_format).block_size
+            padding = max(padding, block_size)
+
         return PackerOptions(
             max_width=self.max_width,
             max_height=self.max_height,
-            padding=self.padding,
+            padding=padding,
             border_padding=self.border_padding,
             power_of_two=self.power_of_two,
             force_square=self.force_square,
@@ -1015,10 +1030,24 @@ class AtlasGenerator:
         output_base = Path(output_path)
         output_base.parent.mkdir(parents=True, exist_ok=True)
 
-        image_ext = f".{options.image_format.lower()}"
-        atlas_path = output_base.with_suffix(image_ext)
-        save_kwargs = self._build_save_kwargs(options)
-        atlas_image.save(str(atlas_path), **save_kwargs)
+        # GPU texture compression path
+        if options.texture_format:
+            tex_fmt = TextureFormat(options.texture_format)
+            container = TextureContainer(options.texture_container)
+            compressor = TextureCompressor()
+            atlas_path_str = compressor.compress_to_file(
+                atlas_image,
+                output_path=str(output_base),
+                texture_format=tex_fmt,
+                container=container,
+                generate_mips=options.generate_mipmaps,
+            )
+            atlas_path = Path(atlas_path_str)
+        else:
+            image_ext = f".{options.image_format.lower()}"
+            atlas_path = output_base.with_suffix(image_ext)
+            save_kwargs = self._build_save_kwargs(options)
+            atlas_image.save(str(atlas_path), **save_kwargs)
 
         frames_for_metadata = expanded_packed_frames or pack_result.packed_frames
 

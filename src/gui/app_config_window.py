@@ -53,6 +53,8 @@ from utils.combo_options import (
     FRAME_FORMAT_OPTIONS,
     FRAME_SELECTION_OPTIONS,
     GENERATOR_IMAGE_FORMAT_OPTIONS,
+    TEXTURE_COMPRESSION_OPTIONS,
+    TEXTURE_CONTAINER_OPTIONS,
     get_display_texts,
     populate_combobox,
 )
@@ -919,6 +921,42 @@ class AppConfigWindow(QDialog):
         output_layout.addWidget(image_format_combo, row, 1)
 
         layout.addWidget(output_group)
+
+        # GPU texture compression group
+        gpu_group = QGroupBox(self.tr("GPU Texture Compression"))
+        gpu_layout = QGridLayout(gpu_group)
+
+        row = 0
+        gpu_layout.addWidget(QLabel(self.tr("Texture format")), row, 0)
+        gpu_format_combo = QComboBox()
+        populate_combobox(gpu_format_combo, TEXTURE_COMPRESSION_OPTIONS, self.tr)
+        gpu_format_combo.setToolTip(
+            self.tr(
+                "GPU texture compression format.\n"
+                "Set to 'None' to output standard images."
+            )
+        )
+        self.generator_fields["texture_format"] = gpu_format_combo
+        gpu_layout.addWidget(gpu_format_combo, row, 1)
+        row += 1
+
+        gpu_layout.addWidget(QLabel(self.tr("Container")), row, 0)
+        gpu_container_combo = QComboBox()
+        populate_combobox(gpu_container_combo, TEXTURE_CONTAINER_OPTIONS, self.tr)
+        gpu_container_combo.setToolTip(
+            self.tr("Container format for GPU-compressed textures.")
+        )
+        self.generator_fields["texture_container"] = gpu_container_combo
+        gpu_layout.addWidget(gpu_container_combo, row, 1)
+        row += 1
+
+        gpu_mipmap_cb = QCheckBox(self.tr("Generate mipmaps"))
+        gpu_mipmap_cb.setChecked(False)
+        gpu_mipmap_cb.setToolTip(self.tr("Generate mipmap levels for GPU textures."))
+        self.generator_fields["generate_mipmaps"] = gpu_mipmap_cb
+        gpu_layout.addWidget(gpu_mipmap_cb, row, 0, 1, 2)
+
+        layout.addWidget(gpu_group)
         layout.addStretch()
 
         return self._wrap_in_scroll_area(widget)
@@ -2120,6 +2158,10 @@ class AppConfigWindow(QDialog):
                     control.setCurrentText(display_name)
                 elif key == "max_size":
                     control.setCurrentText(str(value))
+                elif key in ("texture_format", "texture_container"):
+                    index = control.findData(str(value))
+                    if index >= 0:
+                        control.setCurrentIndex(index)
                 else:
                     control.setCurrentText(str(value))
             elif isinstance(control, QSpinBox):
@@ -2148,6 +2190,8 @@ class AppConfigWindow(QDialog):
                     )
                 elif key == "max_size":
                     generator_defaults[key] = int(control.currentText())
+                elif key in ("texture_format", "texture_container"):
+                    generator_defaults[key] = control.currentData() or ""
                 else:
                     generator_defaults[key] = control.currentText()
             elif isinstance(control, QSpinBox):
