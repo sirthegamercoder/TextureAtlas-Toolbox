@@ -2,7 +2,7 @@
 
 **A powerful, free and open-source tool for extracting, generating, and converting Texture Atlases**
 
-[TextureAtlas Toolbox](https://github.com/MeguminBOT/TextureAtlas-to-GIF-and-Frames) is an all-in-one utility solution for working with texture atlases/spritesheets/tilemaps. Extract sprites into organized frame collections and GIF/WebP/APNG animations, generate optimized atlases from individual frames, or convert between 15+ atlas formats. Perfect for game developers, modders, and anyone creating showcases of game sprites.
+[TextureAtlas Toolbox](https://github.com/MeguminBOT/TextureAtlas-to-GIF-and-Frames) is an all-in-one utility solution for working with texture atlases/spritesheets/tilemaps. Extract sprites into organized frame collections and GIF/WebP/APNG animations, generate optimized atlases from individual frames, or convert between 16+ atlas formats. Perfect for game developers, modders, and anyone creating showcases of game sprites.
 
 *Formerly known as TextureAtlas to GIFs and Frames*
 
@@ -16,7 +16,7 @@
     -   [Extractor](#extractor)
     -   [Generator](#generator)
     -   [Optimizer](#optimizer)
-    -   [Editor (Beta)](#beta-editor-works-with-extractor-only-for-now)
+    -   [Editor (Beta)](#editor)
     -   [General](#general)
 -   [Supported Formats](#supported-formats)
     -   [Extraction](#extraction)
@@ -59,7 +59,7 @@
 
 Extract TextureAtlas for showcases/galleries of game sprites.
 
--   ✅ **Wide format support**: Parses 15+ texture atlas formats — see [Supported Formats](#supported-formats)
+-   ✅ **Wide format support**: Parses 16+ texture atlas formats — see [Supported Formats](#supported-formats)
 -   ✅ **Batch processing**: Extract multiple animations and spritesheets simultaneously
 -   ✅ **Organized output**: Sort frames from spritesheets into individual folders
 -   ✅ **Advanced controls**: Customizable frame rate, loop delay, scale, frame selection, and alpha transparency threshold
@@ -76,8 +76,8 @@ Extract TextureAtlas for showcases/galleries of game sprites.
 
 Create TextureAtlases for usage in games or applications.
 
--   ✅ **Wide format support**: Exports to 15+ different texture atlas formats — see [Supported Formats](#supported-formats)
--   ✅ **Create TextureAtlases from Frames**: Combine individual frames into optimized spritesheets
+-   ✅ **Wide format support**: Exports to 16+ different texture atlas formats — see [Supported Formats](#supported-formats)
+-   ✅ **Create TextureAtlases from Frames**: Combine individual frames into optimized spritesheets. Including GIFs/WebP/APNGs.
 -   ✅ **Convert/Repack TextureAtlases**: Quickly convert between different formats or repack with higher efficiency
 -   ✅ **Multiple packing algorithms**: MaxRects, Guillotine, Skyline, and Shelf packers with various heuristics
 -   ✅ **Auto-optimization**: Automatically selects the best algorithm and heuristic for your current export to ensure highest packing efficiency
@@ -104,7 +104,7 @@ Optimize and compress images with lossless and lossy techniques.
 -   🟨 **GPU texture compression**: Post-process into BC1/BC3/BC7, ETC1/ETC2, ASTC, and PVRTC with DDS or KTX2 containers *(Beta)*
 -   🟨 **Mipmap generation**: Optionally generate full mipmap chains for GPU-compressed textures *(Beta)*
 
-### (Beta) Editor (Works with Extractor only for now)
+### Editor
 
 Edit and combine animations prior to extraction. 
 
@@ -145,6 +145,7 @@ Currently only works with Extraction tool and is in very early beta, feedback on
 | **Plist (Cocos2d)**     | `.plist`             | ✅ Stable | Apple/TexturePacker plist format      |
 | **UIKit Plist**         | `.plist`             | ✅ Stable | Scalar frame keys format              |
 | **Spine Atlas**         | `.atlas`             | ✅ Stable | Spine runtime text format             |
+| **libGDX Atlas**        | `.atlas`             | ✅ Stable | libGDX TexturePacker format           |
 | **Godot Atlas**         | `.tpsheet`, `.tpset` | ✅ Stable | Godot texture atlas JSON              |
 | **Paper2D (Unreal)**    | `.paper2dsprites`    | ✅ Stable | Unreal Engine sprite format           |
 | **CSS Spritesheet**     | `.css`               | ✅ Stable | CSS sprite definitions                |
@@ -166,6 +167,7 @@ Currently only works with Extraction tool and is in very early beta, feedback on
 | **Plist**             | `.plist`          | Cocos2d/TexturePacker       |
 | **UIKit Plist**       | `.plist`          | iOS UIKit format            |
 | **Spine Atlas**       | `.atlas`          | Spine runtime               |
+| **libGDX**            | `.atlas`          | libGDX TexturePacker        |
 | **Godot**             | `.tpsheet`        | Godot Engine                |
 | **Paper2D**           | `.paper2dsprites` | Unreal Engine               |
 | **Unity**             | `.tpsheet`        | Unity TexturePacker         |
@@ -191,9 +193,7 @@ Currently only works with Extraction tool and is in very early beta, feedback on
 ## Planned Features
 
 **Contributors are welcome to help implement the following features:**
-
 -   Anything that improves the application.
-
 -   🔄 **Command-line interface**: Full CLI support for automation and scripting
 -   🖱️ **Drag & drop support**: Easier file loading interface
     _Note: Features mentioned above are planned for future versions and are not currently implemented._
@@ -217,6 +217,8 @@ Supports optional machine-translation providers from DeepL, Google Cloud Transla
 ## Official Download Sites
 
 **_Note: Mac OSX and Linux users need to download source code from GitHub!_**
+
+https://textureatlastoolbox.com/download.html
 
 ### SourceForge
 
@@ -269,4 +271,4 @@ For Windows users, all necessary ImageMagick libraries are included with the rel
 -   Wo1fseas's [PyTexturePacker](https://github.com/wo1fsea/PyTexturePacker)
     -   Their code was referenced to bring packing algorithms.
 
-_Last updated: April 13, 2026 - Visit the [📚 Documentation →](docs/README.md) for more details_
+_Last updated: April 14, 2026 - Visit the [📚 Documentation →](docs/README.md) for more details_
