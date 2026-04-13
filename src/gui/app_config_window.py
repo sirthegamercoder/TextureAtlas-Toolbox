@@ -1111,6 +1111,42 @@ class AppConfigWindow(QDialog):
         output_layout.addWidget(overwrite_cb, 0, 0, 1, 2)
 
         layout.addWidget(output_group)
+
+        # GPU texture compression group
+        gpu_group = QGroupBox(self.tr("GPU Texture Compression"))
+        gpu_layout = QGridLayout(gpu_group)
+
+        row = 0
+        gpu_layout.addWidget(QLabel(self.tr("Texture format")), row, 0)
+        gpu_format_combo = QComboBox()
+        populate_combobox(gpu_format_combo, TEXTURE_COMPRESSION_OPTIONS, self.tr)
+        gpu_format_combo.setToolTip(
+            self.tr(
+                "GPU texture compression format.\n"
+                "Set to 'None' to output standard images."
+            )
+        )
+        self.optimizer_fields["texture_format"] = gpu_format_combo
+        gpu_layout.addWidget(gpu_format_combo, row, 1)
+        row += 1
+
+        gpu_layout.addWidget(QLabel(self.tr("Container")), row, 0)
+        gpu_container_combo = QComboBox()
+        populate_combobox(gpu_container_combo, TEXTURE_CONTAINER_OPTIONS, self.tr)
+        gpu_container_combo.setToolTip(
+            self.tr("Container format for GPU-compressed textures.")
+        )
+        self.optimizer_fields["texture_container"] = gpu_container_combo
+        gpu_layout.addWidget(gpu_container_combo, row, 1)
+        row += 1
+
+        gpu_mipmap_cb = QCheckBox(self.tr("Generate mipmaps"))
+        gpu_mipmap_cb.setChecked(False)
+        gpu_mipmap_cb.setToolTip(self.tr("Generate mipmap levels for GPU textures."))
+        self.optimizer_fields["generate_mipmaps"] = gpu_mipmap_cb
+        gpu_layout.addWidget(gpu_mipmap_cb, row, 0, 1, 2)
+
+        layout.addWidget(gpu_group)
         layout.addStretch()
 
         return self._wrap_in_scroll_area(widget)

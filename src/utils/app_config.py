@@ -100,6 +100,9 @@ class AppConfig:
             "max_colors": 256,
             "dither": "floyd_steinberg",
             "overwrite": False,
+            "texture_format": "none",
+            "texture_container": "dds",
+            "generate_mipmaps": False,
         },
         "interface": {
             "last_input_directory": "",
@@ -186,6 +189,9 @@ class AppConfig:
         "opt_max_colors": int,
         "opt_dither": str,
         "opt_overwrite": bool,
+        "opt_texture_format": str,
+        "opt_texture_container": str,
+        "opt_generate_mipmaps": bool,
     }
 
     def __init__(self, config_path=None):

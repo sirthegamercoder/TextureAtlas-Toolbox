@@ -291,6 +291,55 @@ class OptimizeTabWidget(BaseTabWidget):
 
         right_layout.addWidget(output_group)
 
+        # -- GPU Texture Compression group --
+        gpu_group = QGroupBox(self.tr("GPU Texture Compression"))
+        gpu_form = QFormLayout(gpu_group)
+
+        self._gpu_format_combo = QComboBox()
+        from utils.combo_options import (
+            TEXTURE_COMPRESSION_OPTIONS,
+            TEXTURE_CONTAINER_OPTIONS,
+        )
+
+        for opt in TEXTURE_COMPRESSION_OPTIONS:
+            self._gpu_format_combo.addItem(self.tr(opt.display_key), opt.internal)
+        self._gpu_format_combo.setCurrentIndex(0)  # "None"
+        self._gpu_format_combo.setToolTip(
+            self.tr(
+                "Produce a GPU-compressed file alongside the optimized PNG.\n\n"
+                "Requires etcpak (pip install etcpak) for BC/ETC formats,\n"
+                "or external CLI tools for ASTC/PVRTC."
+            )
+        )
+        gpu_form.addRow(self.tr("Format"), self._gpu_format_combo)
+
+        self._gpu_container_combo = QComboBox()
+        for opt in TEXTURE_CONTAINER_OPTIONS:
+            self._gpu_container_combo.addItem(self.tr(opt.display_key), opt.internal)
+        self._gpu_container_combo.setCurrentIndex(0)  # DDS
+        self._gpu_container_combo.setToolTip(
+            self.tr(
+                "DDS — DirectDraw Surface (desktop/console).\n"
+                "KTX2 — Khronos Texture 2 (cross-platform, all formats)."
+            )
+        )
+        self._gpu_container_label = QLabel(self.tr("Container"))
+        gpu_form.addRow(self._gpu_container_label, self._gpu_container_combo)
+
+        self._gpu_mipmap_check = QCheckBox(self.tr("Generate Mipmaps"))
+        self._gpu_mipmap_check.setChecked(False)
+        self._gpu_mipmap_check.setToolTip(
+            self.tr(
+                "Generate a full mipmap chain for better rendering\n"
+                "when the texture is displayed at reduced sizes."
+            )
+        )
+        gpu_form.addRow(self._gpu_mipmap_check)
+
+        right_layout.addWidget(gpu_group)
+        self._gpu_group = gpu_group
+        self._on_gpu_format_changed()
+
         # -- Preview group --
         preview_group = QGroupBox(self.tr(GroupTitles.PREVIEW))
         preview_layout = QVBoxLayout(preview_group)
@@ -376,6 +425,9 @@ class OptimizeTabWidget(BaseTabWidget):
         self._overwrite_check.toggled.connect(self._on_overwrite_toggled)
         self._file_tree.currentItemChanged.connect(self._on_file_selected)
 
+        # GPU compression
+        self._gpu_format_combo.currentIndexChanged.connect(self._on_gpu_format_changed)
+
     # ------------------------------------------------------------------
     # Saved defaults
     # ------------------------------------------------------------------
@@ -435,6 +487,20 @@ class OptimizeTabWidget(BaseTabWidget):
             # Output
             if "overwrite" in defaults:
                 self._overwrite_check.setChecked(bool(defaults["overwrite"]))
+
+            # GPU texture compression defaults
+            if "texture_format" in defaults:
+                idx = self._gpu_format_combo.findData(defaults["texture_format"])
+                if idx >= 0:
+                    self._gpu_format_combo.setCurrentIndex(idx)
+
+            if "texture_container" in defaults:
+                idx = self._gpu_container_combo.findData(defaults["texture_container"])
+                if idx >= 0:
+                    self._gpu_container_combo.setCurrentIndex(idx)
+
+            if "generate_mipmaps" in defaults:
+                self._gpu_mipmap_check.setChecked(bool(defaults["generate_mipmaps"]))
 
             # Preset — apply last so individual settings don't get overridden
             if "preset" in defaults:
@@ -905,6 +971,12 @@ class OptimizeTabWidget(BaseTabWidget):
             else DitherMethod.FLOYD_STEINBERG
         )
 
+        # Resolve GPU compression
+        gpu_fmt = self._gpu_format_combo.currentData()
+        texture_format = gpu_fmt if gpu_fmt and gpu_fmt != "none" else None
+        texture_container = self._gpu_container_combo.currentData() or "dds"
+        generate_mipmaps = self._gpu_mipmap_check.isChecked()
+
         return OptimizeOptions(
             compress_level=self._compress_level_spin.value(),
             optimize=self._optimize_check.isChecked(),
@@ -917,6 +989,9 @@ class OptimizeTabWidget(BaseTabWidget):
             skip_if_larger=self._skip_if_larger_check.isChecked(),
             overwrite=overwrite,
             output_dir=output_dir,
+            texture_format=texture_format,
+            texture_container=texture_container,
+            generate_mipmaps=generate_mipmaps,
         )
 
     def _set_processing(self, active: bool):
@@ -928,3 +1003,31 @@ class OptimizeTabWidget(BaseTabWidget):
         self._log_text.setVisible(True)
         if active:
             self._progress_bar.setValue(0)
+
+    def _on_gpu_format_changed(self, _index=None):
+        """Show/hide container and mipmap controls based on GPU format."""
+        fmt = self._gpu_format_combo.currentData()
+        has_format = fmt is not None and fmt != "none"
+        self._gpu_container_combo.setVisible(has_format)
+        self._gpu_container_label.setVisible(has_format)
+        self._gpu_mipmap_check.setVisible(has_format)
+
+        # Show a one-time disclaimer when a GPU format is first selected
+        if has_format and not getattr(self, "_gpu_disclaimer_shown", False):
+            self._gpu_disclaimer_shown = True
+            QMessageBox.information(
+                self,
+                self.tr("GPU Texture Compression"),
+                self.tr(
+                    "GPU texture compression produces hardware-specific formats "
+                    "(DDS / KTX2) that are <b>not</b> regular image files.\n\n"
+                    "Only use this when you know your target engine or renderer "
+                    "supports the chosen format. Incorrect settings can produce "
+                    "files that appear corrupted or fail to load.\n\n"
+                    "Key points:\n"
+                    "• DDS containers only support BC (DXT) formats; mobile "
+                    "formats (ETC, ASTC, PVRTC) require KTX2.\n"
+                    "• ASTC and PVRTC need external CLI tools installed "
+                    "separately (astcenc / PVRTexToolCLI)."
+                ),
+            )

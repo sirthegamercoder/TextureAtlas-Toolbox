@@ -179,6 +179,10 @@ class ImageOptimizer:
                     f"{type(inner_exc).__name__}: {inner_exc}"
                 ) from inner_exc
 
+            # GPU texture compression (post-process)
+            if options.texture_format and result.success and not result.skipped:
+                self._gpu_compress(result, options)
+
         except Exception as exc:
             error_msg = str(exc) or repr(exc)
             tb_str = traceback.format_exc()
@@ -206,6 +210,46 @@ class ImageOptimizer:
         return str(
             Path(os.path.join(dest_dir, os.path.basename(src_path))).with_suffix(".png")
         )
+
+    def _gpu_compress(self, result: OptimizeResult, options: OptimizeOptions) -> None:
+        """Run GPU texture compression on the optimized image.
+
+        Writes a ``.dds`` or ``.ktx2`` file alongside the optimized PNG.
+        Updates *result.gpu_compressed_path* on success; logs errors but
+        does not mark the overall result as failed.
+        """
+        from core.optimizer.constants import TextureContainer, TextureFormat
+        from core.optimizer.texture_compress import TextureCompressor
+
+        basename = os.path.basename(result.output_path)
+        try:
+            tex_fmt = TextureFormat(options.texture_format)
+            container = TextureContainer(options.texture_container)
+            compressor = TextureCompressor()
+
+            avail, reason = compressor.is_available(tex_fmt)
+            if not avail:
+                self._log(f"[ImageOptimizer]   GPU skip: {reason}")
+                return
+
+            img = Image.open(result.output_path).convert("RGBA")
+            out_base = str(Path(result.output_path).with_suffix(""))
+            gpu_path = compressor.compress_to_file(
+                img,
+                output_path=out_base,
+                texture_format=tex_fmt,
+                container=container,
+                generate_mips=options.generate_mipmaps,
+            )
+            img.close()
+            result.gpu_compressed_path = gpu_path
+            gpu_size = os.path.getsize(gpu_path)
+            self._log(
+                f"[ImageOptimizer]   GPU compressed: {os.path.basename(gpu_path)} "
+                f"({self.format_size(gpu_size)})"
+            )
+        except Exception as exc:
+            self._log(f"[ImageOptimizer]   GPU error on {basename}: {exc}")
 
     def _process_with_pillow(
         self, src_path: str, tmp_path: str, options: OptimizeOptions
