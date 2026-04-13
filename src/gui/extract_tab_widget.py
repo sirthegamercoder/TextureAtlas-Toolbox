@@ -1062,6 +1062,8 @@ class ExtractTabWidget(BaseTabWidget):
         ".tga",
         ".tiff",
         ".webp",
+        ".dds",
+        ".ktx2",
     )
 
     SUPPORTED_METADATA_EXTENSIONS = (
@@ -1077,17 +1079,18 @@ class ExtractTabWidget(BaseTabWidget):
     )
 
     SPRITESHEET_METADATA_FILTERS = [
-        "All Spritesheet Files (*.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.xml *.txt *.json *.plist *.atlas *.css *.tpsheet *.tpset *.paper2dsprites)",
-        "Spritesheets Images (*.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets XML (*.xml *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets JSON (*.json *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets TXT (*.txt *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets PLIST (*.plist *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets Atlas (*.atlas *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets CSS (*.css *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets TPSHEET (*.tpsheet *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets TPSET (*.tpset *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
-        "Spritesheets PAPER2D (*.paper2dsprites *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp)",
+        "All Spritesheet Files (*.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2 *.xml *.txt *.json *.plist *.atlas *.css *.tpsheet *.tpset *.paper2dsprites)",
+        "Spritesheets Images (*.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "GPU Textures (*.dds *.ktx2)",
+        "Spritesheets XML (*.xml *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets JSON (*.json *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets TXT (*.txt *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets PLIST (*.plist *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets Atlas (*.atlas *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets CSS (*.css *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets TPSHEET (*.tpsheet *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets TPSET (*.tpset *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
+        "Spritesheets PAPER2D (*.paper2dsprites *.png *.jpg *.jpeg *.avif *.bmp *.tga *.tiff *.webp *.dds *.ktx2)",
         "All files (*.*)",
     ]
 
@@ -2587,7 +2590,7 @@ class ExtractTabWidget(BaseTabWidget):
                 not has_metadata
                 and atlas_path.is_file()
                 and atlas_path.suffix.lower()
-                in [".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp"]
+                in [".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp", ".dds", ".ktx2"]
             ):
                 unknown_atlases.append(filename)
 

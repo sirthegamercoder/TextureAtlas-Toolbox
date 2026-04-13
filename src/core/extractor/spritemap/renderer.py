@@ -92,7 +92,17 @@ class AdobeSpritemapRenderer:
         with open(spritemap_json_path, "rb") as spritemap_file:
             spritemap_json = json.loads(spritemap_file.read().decode("utf-8-sig"))
 
-        atlas_image = Image.open(atlas_image_path)
+        atlas_ext = (
+            atlas_image_path.rsplit(".", 1)[-1].lower()
+            if "." in atlas_image_path
+            else ""
+        )
+        if atlas_ext in ("dds", "ktx2"):
+            from core.optimizer.texture_compress import load_gpu_texture
+
+            atlas_image = load_gpu_texture(atlas_image_path)
+        else:
+            atlas_image = Image.open(atlas_image_path)
         if canvas_size is None:
             canvas_size = _infer_canvas_size(
                 self.animation_json,

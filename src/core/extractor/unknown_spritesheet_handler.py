@@ -27,7 +27,16 @@ class UnknownSpritesheetHandler:
         SUPPORTED_METADATA_SUFFIXES: Tuple of metadata file extensions to check.
     """
 
-    SUPPORTED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
+    SUPPORTED_IMAGE_SUFFIXES = (
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".dds",
+        ".ktx2",
+    )
 
     # All metadata file extensions supported by parsers
     SUPPORTED_METADATA_SUFFIXES = (

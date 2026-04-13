@@ -1510,7 +1510,7 @@ class FileProcessorWorker(QThread):
 
             has_metadata = metadata_file is not None
             image_is_supported = filename.lower().endswith(
-                (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
+                (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp", ".dds", ".ktx2")
             )
 
             if (

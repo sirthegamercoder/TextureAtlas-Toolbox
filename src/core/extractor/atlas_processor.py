@@ -73,7 +73,17 @@ class AtlasProcessor:
 
         try:
             Image.MAX_IMAGE_PIXELS = None
-            atlas = Image.open(self.atlas_path)
+            ext = (
+                self.atlas_path.rsplit(".", 1)[-1].lower()
+                if "." in self.atlas_path
+                else ""
+            )
+            if ext in ("dds", "ktx2"):
+                from core.optimizer.texture_compress import load_gpu_texture
+
+                atlas = load_gpu_texture(self.atlas_path)
+            else:
+                atlas = Image.open(self.atlas_path)
         except Exception as e:
             print(f"Error opening atlas: {e}")
             return None, []
@@ -139,7 +149,16 @@ class AtlasProcessor:
         if self.metadata_path is None:
             return True
 
-        image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
+        image_extensions = (
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".bmp",
+            ".tiff",
+            ".webp",
+            ".dds",
+            ".ktx2",
+        )
         return self.metadata_path.lower().endswith(image_extensions)
 
     def has_parse_errors(self) -> bool:
