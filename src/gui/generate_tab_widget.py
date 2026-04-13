@@ -16,7 +16,7 @@ from PySide6.QtCore import QThread, Signal
 from gui.base_tab_widget import BaseTabWidget
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageSequence
 
     PIL_AVAILABLE = True
 except ImportError:
@@ -357,6 +357,9 @@ class GenerateTabWidget(BaseTabWidget):
             ".webp": "WebP",
         }
 
+        # Animated image formats that can be imported as frame sequences
+        self.ANIMATED_IMPORT_FORMATS = {".gif", ".apng"}
+
         # Data formats for spritesheet metadata
         self.DATA_FORMATS = {".xml", ".XML", ".txt", ".TXT", ".json", ".JSON"}
 
@@ -400,11 +403,16 @@ class GenerateTabWidget(BaseTabWidget):
     def get_image_file_filter(self):
         """Generate file filter string for image files.
 
+        Includes both static image formats and animated formats
+        (GIF, APNG) that can be imported as frame sequences.
+
         Returns:
             Filter string suitable for QFileDialog.
         """
-        # Create the extensions string from the IMAGE_FORMATS constant
-        extensions = " ".join(f"*{ext}" for ext in sorted(self.IMAGE_FORMATS.keys()))
+        all_extensions = sorted(
+            set(self.IMAGE_FORMATS.keys()) | self.ANIMATED_IMPORT_FORMATS
+        )
+        extensions = " ".join(f"*{ext}" for ext in all_extensions)
         image_filter = self.tr(FileFilters.IMAGE_FILES).format(extensions)
         return f"{image_filter};;{self.ALL_FILES_FILTER}"
 
@@ -585,7 +593,11 @@ class GenerateTabWidget(BaseTabWidget):
         self.generate_button.clicked.connect(self.generate_atlas)
 
     def add_files(self):
-        """Add individual files to a new animation group."""
+        """Add individual files to a new animation group.
+
+        Animated images (GIF, APNG, animated WebP) are automatically
+        split into individual frames before being added.
+        """
         files, _ = QFileDialog.getOpenFileNames(
             self,
             self.tr(FileDialogTitles.SELECT_FRAMES),
@@ -594,10 +606,33 @@ class GenerateTabWidget(BaseTabWidget):
         )
 
         if files:
-            self.add_frames_to_new_animation(files)
+            static, animated = self._separate_animated_files(files)
+            if static:
+                self.add_frames_to_new_animation(static)
+            for anim_path in animated:
+                extracted = self._extract_animated_frames(anim_path)
+                if extracted:
+                    self.add_frames_to_new_animation(
+                        extracted, animation_name=Path(anim_path).stem
+                    )
+
+    def _glob_all_importable(self, folder):
+        """Collect all importable files (static + animated) from a folder."""
+        all_exts = set(self.IMAGE_FORMATS.keys()) | self.ANIMATED_IMPORT_FORMATS
+        files = []
+        for ext in all_exts:
+            files.extend(folder.glob(f"*{ext}"))
+            files.extend(folder.glob(f"*{ext.upper()}"))
+        return files
 
     def add_directory(self):
-        """Add all images from a directory to the frame list."""
+        """Add all images from a directory to the frame list.
+
+        Animated images (GIF, APNG, animated WebP) found in the
+        directory or its subfolders are automatically split into
+        individual frame sequences, each placed into its own
+        animation group named after the source file.
+        """
         directory = QFileDialog.getExistingDirectory(
             self, self.tr(FileDialogTitles.SELECT_FRAME_DIR), ""
         )
@@ -610,27 +645,38 @@ class GenerateTabWidget(BaseTabWidget):
             if subfolders:
                 animations_created = 0
                 for subfolder in subfolders:
-                    files = []
-                    for ext in self.IMAGE_FORMATS.keys():
-                        files.extend(subfolder.glob(f"*{ext}"))
-                        files.extend(subfolder.glob(f"*{ext.upper()}"))
+                    files = self._glob_all_importable(subfolder)
 
                     if files:
-                        animation_name = subfolder.name
-                        new_animation_item = self.animation_tree.add_animation_group(
-                            animation_name
+                        static, animated = self._separate_animated_files(
+                            [str(f) for f in files]
                         )
-                        actual_animation_name = new_animation_item.text(0)
 
-                        for file_path in files:
-                            if not self.is_frame_already_added(str(file_path)):
-                                self.animation_tree.add_frame_to_animation(
-                                    actual_animation_name, str(file_path)
+                        if static:
+                            animation_name = subfolder.name
+                            new_animation_item = (
+                                self.animation_tree.add_animation_group(animation_name)
+                            )
+                            actual_animation_name = new_animation_item.text(0)
+
+                            for file_path in static:
+                                if not self.is_frame_already_added(file_path):
+                                    self.animation_tree.add_frame_to_animation(
+                                        actual_animation_name, file_path
+                                    )
+                                    self.input_frames.append(file_path)
+                                    self._added_frame_paths.add(file_path)
+
+                            animations_created += 1
+
+                        for anim_path in animated:
+                            extracted = self._extract_animated_frames(anim_path)
+                            if extracted:
+                                self.add_frames_to_new_animation(
+                                    extracted,
+                                    animation_name=Path(anim_path).stem,
                                 )
-                                self.input_frames.append(str(file_path))
-                                self._added_frame_paths.add(str(file_path))
-
-                        animations_created += 1
+                                animations_created += 1
 
                 if animations_created > 0:
                     QMessageBox.information(
@@ -647,13 +693,20 @@ class GenerateTabWidget(BaseTabWidget):
                         self.tr("No image files found in any subfolders."),
                     )
             else:
-                files = []
-                for ext in self.IMAGE_FORMATS.keys():
-                    files.extend(directory_path.glob(f"*{ext}"))
-                    files.extend(directory_path.glob(f"*{ext.upper()}"))
+                files = self._glob_all_importable(directory_path)
 
                 if files:
-                    self.add_frames_to_default_animation([str(f) for f in files])
+                    static, animated = self._separate_animated_files(
+                        [str(f) for f in files]
+                    )
+                    if static:
+                        self.add_frames_to_default_animation(static)
+                    for anim_path in animated:
+                        extracted = self._extract_animated_frames(anim_path)
+                        if extracted:
+                            self.add_frames_to_new_animation(
+                                extracted, animation_name=Path(anim_path).stem
+                            )
                 else:
                     QMessageBox.information(
                         self,
@@ -920,6 +973,7 @@ class GenerateTabWidget(BaseTabWidget):
             "egret2d": "Egret2D JSON",
             "paper2d": "Paper2D (Unreal)",
             "unity": "Unity TexturePacker",
+            "gdx": "libGDX Atlas",
         }
 
         algorithm_display = {
@@ -1517,10 +1571,10 @@ class GenerateTabWidget(BaseTabWidget):
         self.update_frame_info()
         self.update_generate_button_state()
 
-    def add_frames_to_new_animation(self, file_paths):
+    def add_frames_to_new_animation(self, file_paths, animation_name=None):
         """Add frame files to a new animation group."""
         # Create a new animation group
-        new_animation_item = self.animation_tree.add_animation_group()
+        new_animation_item = self.animation_tree.add_animation_group(animation_name)
         animation_name = new_animation_item.text(0)  # Get the actual name assigned
 
         # Add frames to the new animation
@@ -1537,6 +1591,80 @@ class GenerateTabWidget(BaseTabWidget):
     def is_frame_already_added(self, file_path):
         """Check if a frame is already added to any animation."""
         return file_path in self._added_frame_paths
+
+    def _is_animated_image(self, file_path):
+        """Check whether a file is a multi-frame animated image."""
+        ext = Path(file_path).suffix.lower()
+        if ext in self.ANIMATED_IMPORT_FORMATS:
+            return True
+        # WebP can be either static or animated; peek at the frame count
+        if ext == ".webp":
+            try:
+                with Image.open(file_path) as img:
+                    return getattr(img, "n_frames", 1) > 1
+            except Exception:
+                return False
+        return False
+
+    def _separate_animated_files(self, file_paths):
+        """Split a list of file paths into static images and animated images.
+
+        Returns:
+            Tuple of (static_paths, animated_paths).
+        """
+        static = []
+        animated = []
+        for fp in file_paths:
+            if self._is_animated_image(fp):
+                animated.append(fp)
+            else:
+                static.append(fp)
+        return static, animated
+
+    def _extract_animated_frames(self, file_path):
+        """Extract individual frames from an animated image to temp PNGs.
+
+        Each frame is saved as a numbered PNG file inside a temporary
+        directory that is tracked for cleanup.
+
+        Returns:
+            List of extracted frame file paths, or empty list on failure.
+        """
+        import tempfile
+
+        try:
+            temp_dir = Path(
+                tempfile.mkdtemp(prefix="tatgf_anim_")
+            )
+            stem = Path(file_path).stem
+            frame_paths = []
+
+            with Image.open(file_path) as img:
+                for idx, frame in enumerate(ImageSequence.Iterator(img)):
+                    frame = frame.convert("RGBA")
+                    out_path = temp_dir / f"{stem}_{idx:04d}.png"
+                    frame.save(str(out_path), "PNG")
+                    frame_paths.append(str(out_path))
+
+            if frame_paths:
+                if not hasattr(self, "temp_atlas_dirs"):
+                    self.temp_atlas_dirs = []
+                self.temp_atlas_dirs.append(temp_dir)
+            else:
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+            return frame_paths
+
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                self.APP_NAME,
+                self.tr("Could not extract frames from {0}: {1}").format(
+                    Path(file_path).name, str(e)
+                ),
+            )
+            return []
 
     def clear_frames(self):
         """Clear all frames from all animations."""
