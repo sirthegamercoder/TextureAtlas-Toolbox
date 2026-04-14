@@ -170,7 +170,9 @@ class UnknownAtlasWarningWindow(QDialog):
             )
             more_label.setFont(QFont("Arial", 9, QFont.Weight.ExtraLight))
             more_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            more_label.setStyleSheet("QLabel { color: #666; padding: 15px; }")
+            more_label.setStyleSheet(
+                "QLabel { color: palette(placeholderText); padding: 15px; }"
+            )
             thumbnail_layout.addWidget(more_label, row, col)
 
         for i in range(max_cols):
@@ -192,7 +194,7 @@ class UnknownAtlasWarningWindow(QDialog):
         frame.setFrameStyle(QFrame.Shape.Box)
         frame.setLineWidth(1)
         frame.setStyleSheet(
-            "QFrame { background-color: #f8f8f8; border: 1px solid #ccc; }"
+            "QFrame { background-color: palette(alternateBase); border: 1px solid palette(mid); }"
         )
         frame.setFixedSize(120, 110)
 
@@ -212,7 +214,7 @@ class UnknownAtlasWarningWindow(QDialog):
             thumbnail_label.setText("📷")
             thumbnail_label.setFont(QFont("Arial", 16))
             thumbnail_label.setStyleSheet(
-                "QLabel { border: 1px solid #ddd; background-color: #e0e0e0; color: #666666; }"
+                "QLabel { border: 1px solid palette(mid); background-color: palette(base); color: palette(placeholderText); }"
             )
 
         layout.addWidget(thumbnail_label)
@@ -223,7 +225,7 @@ class UnknownAtlasWarningWindow(QDialog):
         name_label.setWordWrap(True)
         name_label.setMaximumWidth(116)
         name_label.setStyleSheet(
-            "QLabel { color: #333333; background-color: #e8e8e8; padding: 2px; border-radius: 2px; }"
+            "QLabel { color: palette(text); background-color: palette(alternateBase); padding: 2px; border-radius: 2px; }"
         )
         layout.addWidget(name_label)
 

@@ -168,7 +168,9 @@ class LanguageSelectionWindow(QDialog):
                 unknown=self.QUALITY_MARKERS["unknown"],
             )
         )
-        self.info_label.setStyleSheet("color: #666; font-size: 10px;")
+        self.info_label.setStyleSheet(
+            "color: palette(placeholderText); font-size: 10px;"
+        )
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label)
 

@@ -180,7 +180,7 @@ class SettingsWindow(QDialog):
             empty_label = QLabel(self.tr("  (no overrides)"))
             empty_label.setFont(small_font)
             empty_label.setStyleSheet(
-                "QLabel { margin: 0 0 0 12px; color: #777; font-style: italic; padding: 0; }"
+                "QLabel { margin: 0 0 0 12px; color: palette(placeholderText); font-style: italic; padding: 0; }"
             )
             empty_label.setFixedHeight(14)
             details_layout.addWidget(empty_label)
@@ -223,7 +223,9 @@ class SettingsWindow(QDialog):
         # --- Animation overrides ---
         animation_label = QLabel(self.tr("Animation Settings"))
         animation_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        animation_label.setStyleSheet("QLabel { color: #2E86AB; margin: 6px 0 3px 0; }")
+        animation_label.setStyleSheet(
+            "QLabel { color: palette(highlight); margin: 6px 0 3px 0; }"
+        )
         self.content_layout.addWidget(animation_label)
 
         if self.settings_manager.animation_settings:
@@ -240,7 +242,7 @@ class SettingsWindow(QDialog):
             )
             no_settings_label.setFont(QFont("Arial", 8))
             no_settings_label.setStyleSheet(
-                "QLabel { margin-left: 16px; color: #777; font-style: italic; }"
+                "QLabel { margin-left: 16px; color: palette(placeholderText); font-style: italic; }"
             )
             self.content_layout.addWidget(no_settings_label)
 
@@ -254,7 +256,7 @@ class SettingsWindow(QDialog):
         spritesheet_label = QLabel(self.tr("Spritesheet Settings"))
         spritesheet_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         spritesheet_label.setStyleSheet(
-            "QLabel { color: #A23B72; margin: 6px 0 3px 0; }"
+            "QLabel { color: palette(highlight); margin: 6px 0 3px 0; }"
         )
         self.content_layout.addWidget(spritesheet_label)
 
@@ -272,7 +274,7 @@ class SettingsWindow(QDialog):
             )
             no_settings_label.setFont(QFont("Arial", 8))
             no_settings_label.setStyleSheet(
-                "QLabel { margin-left: 16px; color: #777; font-style: italic; }"
+                "QLabel { margin-left: 16px; color: palette(placeholderText); font-style: italic; }"
             )
             self.content_layout.addWidget(no_settings_label)
 

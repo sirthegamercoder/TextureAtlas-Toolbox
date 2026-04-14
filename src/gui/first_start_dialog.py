@@ -132,7 +132,9 @@ class FirstStartDialog(QDialog):
 
         # Quality indicator legend
         self.quality_legend = QLabel()
-        self.quality_legend.setStyleSheet("color: #888; font-size: 10px;")
+        self.quality_legend.setStyleSheet(
+            "color: palette(placeholderText); font-size: 10px;"
+        )
         self._update_quality_legend()
         lang_layout.addWidget(self.quality_legend)
 
@@ -401,8 +403,8 @@ class FirstStartDialog(QDialog):
         frame.setStyleSheet(
             """
             QFrame {
-                background-color: rgba(244, 67, 54, 0.15);
-                border: 1px solid rgba(244, 67, 54, 0.5);
+                background-color: rgba(244, 67, 54, 0.10);
+                border: 1px solid rgba(244, 67, 54, 0.4);
                 border-radius: 6px;
                 padding: 8px;
             }

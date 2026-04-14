@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTextEdit,
@@ -358,7 +359,14 @@ class OptimizeTabWidget(BaseTabWidget):
 
         right_layout.addStretch()
 
-        splitter.addWidget(right_widget)
+        # Wrap right panel in a scroll area so it doesn't clip at small sizes
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        right_scroll.setWidget(right_widget)
+
+        splitter.addWidget(right_scroll)
+        splitter.setChildrenCollapsible(False)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
 

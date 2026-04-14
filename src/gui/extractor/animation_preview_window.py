@@ -720,7 +720,7 @@ class AnimationPreviewWindow(QDialog):
 
         self.progress_label = QLabel("")
         self.progress_label.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.progress_label.setStyleSheet("color: #666;")
+        self.progress_label.setStyleSheet("color: palette(placeholderText);")
         info_layout.addWidget(self.progress_label)
 
         layout.addLayout(info_layout)

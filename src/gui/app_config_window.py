@@ -303,11 +303,17 @@ class AppConfigWindow(QDialog):
         return scroll_area
 
     def _apply_color_scheme(self, scheme: str) -> None:
-        """Apply the specified color scheme to the application immediately.
+        """Apply the current theme to the application.
 
-        Args:
-            scheme: One of 'auto', 'light', or 'dark'.
+        Delegates to the main window's ``_apply_current_theme()`` so that
+        the full theme engine (QSS, palette, icons) is used instead of
+        only setting the Qt color scheme hint.
         """
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_apply_current_theme"):
+            parent._apply_current_theme()
+            return
+        # Fallback: plain Qt color-scheme hint when parent unavailable
         app = QApplication.instance()
         if app is None:
             return
@@ -1447,7 +1453,7 @@ class AppConfigWindow(QDialog):
             )
         )
         note_label.setFont(QFont("Arial", 8, QFont.Weight.ExtraLight))
-        note_label.setStyleSheet("QLabel { color: #666; }")
+        note_label.setStyleSheet("QLabel { color: palette(placeholderText); }")
         note_label.setWordWrap(True)
         group_layout.addWidget(note_label)
 

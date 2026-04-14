@@ -132,7 +132,7 @@ class ContributorsWindow(QDialog):
 
         if "role" in contributor_data:
             role_label = QLabel(contributor_data["role"])
-            role_label.setStyleSheet("color: #666666;")
+            role_label.setStyleSheet("color: palette(placeholderText);")
             card_layout.addWidget(role_label)
 
         if "description" in contributor_data:

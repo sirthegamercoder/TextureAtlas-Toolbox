@@ -73,7 +73,9 @@ class FindReplaceWindow(QDialog):
             )
         )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("color: #666666; margin-bottom: 10px;")
+        instructions.setStyleSheet(
+            "color: palette(placeholderText); margin-bottom: 10px;"
+        )
         layout.addWidget(instructions)
 
         scroll_area = QScrollArea()
@@ -143,7 +145,7 @@ class FindReplaceWindow(QDialog):
         rule_frame.setStyleSheet(
             """
             QGroupBox {
-                border: 1px solid #cccccc;
+                border: 1px solid palette(mid);
                 border-radius: 5px;
                 margin-top: 5px;
                 padding-top: 10px;

@@ -164,7 +164,9 @@ class BackgroundHandlerWindow(QDialog):
             )
         )
         transparency_tip.setFont(QFont("Arial", 8))
-        transparency_tip.setStyleSheet("QLabel { margin-left: 10px; color: #0066cc; }")
+        transparency_tip.setStyleSheet(
+            "QLabel { margin-left: 10px; color: palette(link); }"
+        )
         options_layout.addWidget(transparency_tip)
 
         main_layout.addWidget(options_frame)
@@ -198,13 +200,11 @@ class BackgroundHandlerWindow(QDialog):
         Returns:
             QFrame containing the checkbox, filename, and color samples.
         """
-        bg_color = "#f0f0f0" if index % 2 == 0 else "#ffffff"
-
         entry_frame = QFrame()
         entry_frame.setFrameStyle(QFrame.Shape.Box)
         entry_frame.setLineWidth(1)
         entry_frame.setStyleSheet(
-            f"QFrame {{ background-color: {bg_color}; border: 1px solid #ccc; }}"
+            f"QFrame {{ background-color: palette(alternateBase); border: 1px solid palette(mid); }}"
         )
 
         layout = QVBoxLayout(entry_frame)
@@ -243,7 +243,9 @@ class BackgroundHandlerWindow(QDialog):
                 )
             )
             more_label.setFont(QFont("Arial", 8))
-            more_label.setStyleSheet("QLabel { margin-left: 25px; color: gray; }")
+            more_label.setStyleSheet(
+                "QLabel { margin-left: 25px; color: palette(placeholderText); }"
+            )
             layout.addWidget(more_label)
 
         return entry_frame

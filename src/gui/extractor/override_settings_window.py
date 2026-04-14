@@ -205,7 +205,7 @@ class OverrideSettingsWindow(QDialog):
         )
         title_label = QLabel(mode_text)
         title_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        title_label.setStyleSheet("QLabel { color: #333333; }")
+        title_label.setStyleSheet("QLabel { color: palette(text); }")
         content_layout.addWidget(title_label)
 
         general_group = self.create_general_section()

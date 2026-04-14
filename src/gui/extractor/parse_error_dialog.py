@@ -131,16 +131,16 @@ class ParseErrorDialog(QDialog):
             ).format(
                 errors=total_errors, warnings=total_warnings, files=files_with_issues
             )
-            message.setStyleSheet("color: #d32f2f; font-weight: bold;")
+            message.setStyleSheet("color: #ef5350; font-weight: bold;")
         elif total_warnings > 0:
             text = self.tr(
                 "Found {warnings} warning(s) in {files} file(s).\n"
                 "Extraction can proceed but results may be affected."
             ).format(warnings=total_warnings, files=files_with_issues)
-            message.setStyleSheet("color: #f57c00; font-weight: bold;")
+            message.setStyleSheet("color: #ffa726; font-weight: bold;")
         else:
             text = self.tr("All files parsed successfully.")
-            message.setStyleSheet("color: #388e3c; font-weight: bold;")
+            message.setStyleSheet("color: #66bb6a; font-weight: bold;")
 
         message.setText(text)
         header_layout.addWidget(message)
