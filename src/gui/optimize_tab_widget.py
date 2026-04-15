@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import List, Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,12 +25,10 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSpinBox,
     QSplitter,
-    QTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -54,6 +51,7 @@ from core.optimizer import (
     SUPPORTED_EXTENSIONS,
 )
 from gui.base_tab_widget import BaseTabWidget
+from gui.job_progress_window import JobProgressWindow
 from utils.translation_manager import tr as translate
 from utils.ui_constants import CheckBoxLabels, GroupTitles, Labels, Tooltips
 
@@ -123,6 +121,7 @@ class OptimizeTabWidget(BaseTabWidget):
         super().__init__(parent_app, use_existing_ui=False)
         self._file_list: List[str] = []
         self._worker: Optional[OptimizerWorker] = None
+        self._progress_window: Optional[JobProgressWindow] = None
         self._applying_preset: bool = False
         self._setup_ui()
 
@@ -169,10 +168,12 @@ class OptimizeTabWidget(BaseTabWidget):
         self._file_tree.setRootIsDecorated(False)
         self._file_tree.setAlternatingRowColors(True)
         header = self._file_tree.header()
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(1, 80)
+        header.resizeSection(2, 80)
         left_layout.addWidget(self._file_tree)
 
         self._file_count_label = QLabel(self.tr("No files selected"))
@@ -180,7 +181,7 @@ class OptimizeTabWidget(BaseTabWidget):
 
         splitter.addWidget(left_widget)
 
-        # ---- Right: preset + options + preview ----
+        # ---- Right: preset + options ----
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -341,22 +342,6 @@ class OptimizeTabWidget(BaseTabWidget):
         self._gpu_group = gpu_group
         self._on_gpu_format_changed()
 
-        # -- Preview group --
-        preview_group = QGroupBox(self.tr(GroupTitles.PREVIEW))
-        preview_layout = QVBoxLayout(preview_group)
-
-        self._preview_label = QLabel()
-        self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview_label.setMinimumSize(200, 150)
-        self._preview_label.setText(self.tr("Select a file to preview"))
-        preview_layout.addWidget(self._preview_label)
-
-        self._preview_info_label = QLabel("")
-        self._preview_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        preview_layout.addWidget(self._preview_info_label)
-
-        right_layout.addWidget(preview_group)
-
         right_layout.addStretch()
 
         # Wrap right panel in a scroll area so it doesn't clip at small sizes
@@ -372,33 +357,14 @@ class OptimizeTabWidget(BaseTabWidget):
 
         root_layout.addWidget(splitter)
 
-        # ---- Bottom: progress + action ----
+        # ---- Bottom: action button ----
         bottom_layout = QHBoxLayout()
-
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setVisible(False)
-        bottom_layout.addWidget(self._progress_bar, stretch=1)
 
         self._optimize_btn = QPushButton(self.tr("Optimize Images"))
         self._optimize_btn.setMinimumHeight(36)
         bottom_layout.addWidget(self._optimize_btn)
 
         root_layout.addLayout(bottom_layout)
-
-        # ---- Log console ----
-        self._log_text = QTextEdit()
-        self._log_text.setReadOnly(True)
-        self._log_text.setMaximumHeight(120)
-        self._log_text.setVisible(False)
-        self._log_text.setPlaceholderText(
-            self.tr("Optimization log will appear here...")
-        )
-        root_layout.addWidget(self._log_text)
-
-        # ---- Results summary ----
-        self._results_label = QLabel("")
-        self._results_label.setWordWrap(True)
-        root_layout.addWidget(self._results_label)
 
         # ---- Signals & initial state ----
         self._connect_signals()
@@ -431,8 +397,6 @@ class OptimizeTabWidget(BaseTabWidget):
         self._select_output_btn.clicked.connect(self._on_select_output)
         self._optimize_btn.clicked.connect(self._on_optimize)
         self._overwrite_check.toggled.connect(self._on_overwrite_toggled)
-        self._file_tree.currentItemChanged.connect(self._on_file_selected)
-
         # GPU compression
         self._gpu_format_combo.currentIndexChanged.connect(self._on_gpu_format_changed)
 
@@ -646,9 +610,6 @@ class OptimizeTabWidget(BaseTabWidget):
         self._file_list.clear()
         self._file_tree.clear()
         self._update_file_count()
-        self._preview_label.setText(self.tr("Select a file to preview"))
-        self._preview_info_label.setText("")
-        self._results_label.setText("")
 
     def _on_select_output(self):
         folder = QFileDialog.getExistingDirectory(
@@ -668,58 +629,6 @@ class OptimizeTabWidget(BaseTabWidget):
         self._select_output_btn.setEnabled(not checked)
         self._output_dir_label.setEnabled(not checked)
 
-    def _on_file_selected(self, current: QTreeWidgetItem, _previous):
-        if current is None:
-            return
-        path = current.data(0, Qt.ItemDataRole.UserRole)
-        if not path or not os.path.isfile(path):
-            return
-
-        size = os.path.getsize(path)
-
-        # Use Pillow for preview instead of Qt's QPixmap, because
-        # QImageIOHandler rejects images above its 256 MB allocation
-        # limit.  Pillow can open them and generate a small thumbnail.
-        try:
-            from PIL import Image as PILImage
-
-            with PILImage.open(path) as pil_img:
-                pil_img.thumbnail((400, 300), PILImage.Resampling.LANCZOS)
-                # Convert to QPixmap via QImage
-                if pil_img.mode == "RGBA":
-                    data = pil_img.tobytes("raw", "RGBA")
-                    qimg = QImage(
-                        data,
-                        pil_img.width,
-                        pil_img.height,
-                        4 * pil_img.width,
-                        QImage.Format.Format_RGBA8888,
-                    )
-                else:
-                    rgb = pil_img.convert("RGB")
-                    data = rgb.tobytes("raw", "RGB")
-                    qimg = QImage(
-                        data,
-                        rgb.width,
-                        rgb.height,
-                        3 * rgb.width,
-                        QImage.Format.Format_RGB888,
-                    )
-                pixmap = QPixmap.fromImage(qimg)
-                if not pixmap.isNull():
-                    self._preview_label.setPixmap(pixmap)
-                else:
-                    self._preview_label.setText(self.tr("Cannot preview this file"))
-        except Exception as exc:
-            print(f"[OptimizeTab] Preview failed: {exc}")
-            self._preview_label.setText(
-                self.tr("Preview unavailable (image too large)")
-            )
-
-        self._preview_info_label.setText(
-            f"{os.path.basename(path)}  \u2014  " f"{ImageOptimizer.format_size(size)}"
-        )
-
     # ------------------------------------------------------------------
     # Optimize action
     # ------------------------------------------------------------------
@@ -738,13 +647,13 @@ class OptimizeTabWidget(BaseTabWidget):
             return
 
         self._set_processing(True)
-        self._results_label.setText("")
-        self._log_text.clear()
-        self._log_text.append(
-            self.tr("Starting optimization of {count} file(s)...").format(
-                count=len(self._file_list)
-            )
+
+        # Open dedicated progress window
+        self._progress_window = JobProgressWindow(
+            self, title=self.tr("Optimizing Images")
         )
+        self._progress_window.start(total_steps=len(self._file_list))
+        self._progress_window.show()
 
         self._worker = OptimizerWorker(list(self._file_list), options)
         self._worker.progress_updated.connect(self._on_progress)
@@ -758,9 +667,8 @@ class OptimizeTabWidget(BaseTabWidget):
     # ------------------------------------------------------------------
 
     def _on_progress(self, current: int, total: int, filename: str):
-        self._progress_bar.setMaximum(total)
-        self._progress_bar.setValue(current)
-        self._progress_bar.setFormat(f"{current}/{total}  \u2014  {filename}")
+        if self._progress_window is not None:
+            self._progress_window.update_progress(current, total, filename)
 
     def _on_log_message(self, message: str):
         """Append a log line from the optimizer worker to the console."""
@@ -768,11 +676,8 @@ class OptimizeTabWidget(BaseTabWidget):
         display = message
         if display.startswith("[ImageOptimizer]"):
             display = display[len("[ImageOptimizer]") :].lstrip()
-        self._log_text.append(display)
-        # Auto-scroll to bottom
-        cursor = self._log_text.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        self._log_text.setTextCursor(cursor)
+        if self._progress_window is not None:
+            self._progress_window.append_log(display)
 
     def _on_completed(self, results: list):
         self._set_processing(False)
@@ -832,36 +737,26 @@ class OptimizeTabWidget(BaseTabWidget):
         failed = len(results) - success_count - skipped_count
         if total_original > 0:
             pct = (total_saved / total_original) * 100.0
-            self._results_label.setText(
-                self.tr(
-                    "Done! {optimized} optimized, {skipped} skipped, "
-                    "{failed} failed. "
-                    "Saved {saved} ({percent:.1f}% reduction)."
-                ).format(
-                    optimized=success_count,
-                    skipped=skipped_count,
-                    failed=failed,
-                    saved=ImageOptimizer.format_size(total_saved),
-                    percent=pct,
-                )
+            summary = self.tr(
+                "Done! {optimized} optimized, {skipped} skipped, "
+                "{failed} failed. "
+                "Saved {saved} ({percent:.1f}% reduction)."
+            ).format(
+                optimized=success_count,
+                skipped=skipped_count,
+                failed=failed,
+                saved=ImageOptimizer.format_size(total_saved),
+                percent=pct,
             )
         else:
-            self._results_label.setText(
-                self.tr(
-                    "Done! {optimized} optimized, {skipped} skipped, "
-                    "{failed} failed."
-                ).format(
-                    optimized=success_count,
-                    skipped=skipped_count,
-                    failed=failed,
-                )
+            summary = self.tr(
+                "Done! {optimized} optimized, {skipped} skipped, "
+                "{failed} failed."
+            ).format(
+                optimized=success_count,
+                skipped=skipped_count,
+                failed=failed,
             )
-
-        # Log completion to the console
-        self._log_text.append("\n" + "=" * 50)
-        self._log_text.append(self.tr("OPTIMIZATION COMPLETED").upper())
-        self._log_text.append("=" * 50)
-        self._log_text.append(self._results_label.text())
 
         # Show error dialog if any files failed
         if error_details:
@@ -879,12 +774,22 @@ class OptimizeTabWidget(BaseTabWidget):
             error_box.setDetailedText(detail_text)
             error_box.exec()
 
+        # Finalize progress window
+        if self._progress_window is not None:
+            self._progress_window.update_progress(len(results), len(results))
+            self._progress_window.finish(
+                success=not error_details, message=summary
+            )
+
     def _on_failed(self, error: str):
         self._set_processing(False)
-        self._log_text.append("\n" + "=" * 50)
-        self._log_text.append(self.tr("OPTIMIZATION FAILED").upper())
-        self._log_text.append("=" * 50)
-        self._log_text.append(error)
+
+        # Finalize progress window
+        if self._progress_window is not None:
+            self._progress_window.finish(
+                success=False, message=self.tr("Optimization Failed")
+            )
+
         QMessageBox.critical(
             self,
             self.tr("Optimization Failed"),
@@ -1007,10 +912,6 @@ class OptimizeTabWidget(BaseTabWidget):
         self._add_files_btn.setEnabled(not active)
         self._add_folder_btn.setEnabled(not active)
         self._clear_btn.setEnabled(not active)
-        self._progress_bar.setVisible(active)
-        self._log_text.setVisible(True)
-        if active:
-            self._progress_bar.setValue(0)
 
     def _on_gpu_format_changed(self, _index=None):
         """Show/hide container and mipmap controls based on GPU format."""
