@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor, QPainter
 
 from utils.translation_manager import tr as translate
+from utils.ui_constants import ButtonLabels, WindowTitles
 
 
 class BackgroundHandlerWindow(QDialog):
@@ -53,7 +54,7 @@ class BackgroundHandlerWindow(QDialog):
         self.result = {}
         self.checkbox_vars = {}
 
-        self.setWindowTitle(self.tr("Background Color Options"))
+        self.setWindowTitle(self.tr(WindowTitles.BACKGROUND_COLOR_OPTIONS))
         self.setModal(True)
         self.resize(750, 550)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
@@ -180,7 +181,7 @@ class BackgroundHandlerWindow(QDialog):
         apply_btn.setDefault(True)
         button_layout.addWidget(apply_btn)
 
-        cancel_btn = QPushButton(self.tr("Cancel"))
+        cancel_btn = QPushButton(self.tr(ButtonLabels.CANCEL))
         cancel_btn.clicked.connect(self.on_cancel)
         cancel_btn.setMinimumWidth(120)
         button_layout.addWidget(cancel_btn)

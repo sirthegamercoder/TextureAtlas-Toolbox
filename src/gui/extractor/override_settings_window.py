@@ -112,7 +112,8 @@ class OverrideSettingsWindow(QDialog):
             )
         )
         self.setModal(True)
-        self.resize(500, 650)
+        self.setMinimumSize(380, 400)
+        self.resize(500, 600)
 
         self.animation_format_combo = None
         self.fps_spinbox = None
@@ -257,7 +258,6 @@ class OverrideSettingsWindow(QDialog):
         layout.addWidget(QLabel(self.tr("Name:")), row, 0)
         name_label = QLabel(self.name)
         name_label.setWordWrap(True)
-        name_label.setMaximumWidth(200)
         layout.addWidget(name_label, row, 1)
         row += 1
 
@@ -265,7 +265,6 @@ class OverrideSettingsWindow(QDialog):
             layout.addWidget(QLabel(self.tr("Spritesheet:")), row, 0)
             spritesheet_label = QLabel(self.spritesheet_name)
             spritesheet_label.setWordWrap(True)
-            spritesheet_label.setMaximumWidth(200)
             layout.addWidget(spritesheet_label, row, 1)
             row += 1
 

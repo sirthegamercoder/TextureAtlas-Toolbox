@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
 from utils.translation_manager import tr as translate
-from utils.ui_constants import ButtonLabels
+from utils.ui_constants import ButtonLabels, WindowTitles
 
 # Keys that are internal metadata and should not be shown in the overview.
 _HIDDEN_KEYS = frozenset(
@@ -65,7 +65,7 @@ class SettingsWindow(QDialog):
         """
         super().__init__(parent)
         self.settings_manager = settings_manager
-        self.setWindowTitle(self.tr("Current Settings Overview"))
+        self.setWindowTitle(self.tr(WindowTitles.CURRENT_SETTINGS_OVERVIEW))
         self.setModal(True)
         self.resize(500, 400)
 

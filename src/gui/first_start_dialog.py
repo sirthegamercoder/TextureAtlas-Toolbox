@@ -26,6 +26,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QIcon
 
 from utils.translation_manager import get_translation_manager, tr as translate
+from utils.ui_constants import ButtonLabels, CheckBoxLabels, WindowTitles
 from utils.version import APP_NAME, APP_VERSION
 
 # Import Qt resources to make icons available
@@ -88,7 +89,7 @@ class FirstStartDialog(QDialog):
 
     def setup_ui(self):
         """Build the dialog layout with welcome message, warnings, and options."""
-        self.setWindowTitle(self.tr("Welcome to TextureAtlas Toolbox"))
+        self.setWindowTitle(self.tr(WindowTitles.WELCOME))
         self.setModal(True)
 
         layout = QVBoxLayout(self)
@@ -195,13 +196,13 @@ class FirstStartDialog(QDialog):
         update_layout.addWidget(self.update_info)
 
         self.check_updates_checkbox = QCheckBox(
-            self.tr("Check for updates on startup (recommended)")
+            self.tr(CheckBoxLabels.CHECK_UPDATES_RECOMMENDED)
         )
         self.check_updates_checkbox.setChecked(self._check_updates_state)
         update_layout.addWidget(self.check_updates_checkbox)
 
         self.auto_download_checkbox = QCheckBox(
-            self.tr("Automatically download updates when available")
+            self.tr(CheckBoxLabels.AUTO_DOWNLOAD_AVAILABLE)
         )
         self.auto_download_checkbox.setChecked(self._auto_download_state)
         update_layout.addWidget(self.auto_download_checkbox)
@@ -215,7 +216,7 @@ class FirstStartDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.continue_button = QPushButton(self.tr("Continue"))
+        self.continue_button = QPushButton(self.tr(ButtonLabels.CONTINUE))
         self.continue_button.setMinimumWidth(120)
         self.continue_button.setDefault(True)
         self.continue_button.clicked.connect(self.accept)
@@ -287,7 +288,7 @@ class FirstStartDialog(QDialog):
 
     def _retranslate_ui(self):
         """Update all translatable text in the dialog."""
-        self.setWindowTitle(self.tr("Welcome to TextureAtlas Toolbox"))
+        self.setWindowTitle(self.tr(WindowTitles.WELCOME))
         self.welcome_label.setText(
             self.tr("Welcome to {app_name} {app_version}").format(
                 app_name=APP_NAME, app_version=APP_VERSION
@@ -323,10 +324,10 @@ class FirstStartDialog(QDialog):
             )
         )
         self.check_updates_checkbox.setText(
-            self.tr("Check for updates on startup (recommended)")
+            self.tr(CheckBoxLabels.CHECK_UPDATES_RECOMMENDED)
         )
         self.auto_download_checkbox.setText(
-            self.tr("Automatically download updates when available")
+            self.tr(CheckBoxLabels.AUTO_DOWNLOAD_AVAILABLE)
         )
         self.continue_button.setText(self.tr("Continue"))
         self._update_quality_legend()

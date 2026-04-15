@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPixmap
 
 from utils.translation_manager import tr as translate
+from utils.ui_constants import ButtonLabels, MenuActions, WindowTitles
 
 try:
     from PIL import Image
@@ -58,7 +59,7 @@ class UnknownAtlasWarningWindow(QDialog):
         self.input_directory = input_directory
         self.result = "cancel"
 
-        self.setWindowTitle(self.tr("Unknown Atlas Warning"))
+        self.setWindowTitle(self.tr(WindowTitles.UNKNOWN_ATLAS_WARNING))
         self.setModal(True)
         self.resize(600, 650)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
@@ -77,7 +78,7 @@ class UnknownAtlasWarningWindow(QDialog):
         warning_label.setFont(QFont("Arial", 24))
         title_layout.addWidget(warning_label)
 
-        title_text = QLabel(self.tr("Unknown Atlas Warning"))
+        title_text = QLabel(self.tr(WindowTitles.UNKNOWN_ATLAS_WARNING))
         title_text.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         title_layout.addWidget(title_text)
         title_layout.addStretch()
@@ -111,18 +112,18 @@ class UnknownAtlasWarningWindow(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        proceed_btn = QPushButton(self.tr("Proceed anyway"))
+        proceed_btn = QPushButton(self.tr(MenuActions.PROCEED_ANYWAY))
         proceed_btn.clicked.connect(self.on_proceed)
         proceed_btn.setMinimumWidth(120)
         proceed_btn.setDefault(True)
         button_layout.addWidget(proceed_btn)
 
-        skip_btn = QPushButton(self.tr("Skip unknown"))
+        skip_btn = QPushButton(self.tr(MenuActions.SKIP_UNKNOWN))
         skip_btn.clicked.connect(self.on_skip)
         skip_btn.setMinimumWidth(120)
         button_layout.addWidget(skip_btn)
 
-        cancel_btn = QPushButton(self.tr("Cancel"))
+        cancel_btn = QPushButton(self.tr(ButtonLabels.CANCEL))
         cancel_btn.clicked.connect(self.on_cancel)
         cancel_btn.setMinimumWidth(120)
         button_layout.addWidget(cancel_btn)
