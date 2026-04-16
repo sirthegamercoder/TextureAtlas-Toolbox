@@ -204,6 +204,7 @@ class TextureAtlasToolboxApp(QMainWindow):
             self.extract_tab_widget.update_frame_rate_display()
 
         self.update_dynamic_tab_labels()
+        self.ui.tools_tab.setCurrentIndex(self._extract_tab_index)
         self.ui.tools_tab.currentChanged.connect(self._on_tools_tab_changed)
         self._on_tools_tab_changed(self.ui.tools_tab.currentIndex())
 
