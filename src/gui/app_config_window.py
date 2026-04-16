@@ -268,17 +268,23 @@ class AppConfigWindow(QDialog):
         self._row_to_page = {}
 
         sections = [
-            (self.tr(TabTitles.GENERAL), [
-                (self.tr(TabTitles.SYSTEM_RESOURCES), self.create_system_tab()),
-                (self.tr(TabTitles.INTERFACE), self.create_interface_tab()),
-                (self.tr(TabTitles.UPDATES), self.create_update_tab()),
-            ]),
-            (self.tr(TabTitles.DEFAULTS), [
-                (self.tr(TabTitles.EXTRACTION), self.create_extraction_tab()),
-                (self.tr(TabTitles.GENERATOR), self.create_generator_tab()),
-                (self.tr(TabTitles.OPTIMIZER), self.create_optimizer_tab()),
-                (self.tr(TabTitles.COMPRESSION), self.create_compression_tab()),
-            ]),
+            (
+                self.tr(TabTitles.GENERAL),
+                [
+                    (self.tr(TabTitles.SYSTEM_RESOURCES), self.create_system_tab()),
+                    (self.tr(TabTitles.INTERFACE), self.create_interface_tab()),
+                    (self.tr(TabTitles.UPDATES), self.create_update_tab()),
+                ],
+            ),
+            (
+                self.tr(TabTitles.DEFAULTS),
+                [
+                    (self.tr(TabTitles.EXTRACTION), self.create_extraction_tab()),
+                    (self.tr(TabTitles.GENERATOR), self.create_generator_tab()),
+                    (self.tr(TabTitles.OPTIMIZER), self.create_optimizer_tab()),
+                    (self.tr(TabTitles.COMPRESSION), self.create_compression_tab()),
+                ],
+            ),
         ]
 
         page_index = 0
@@ -2091,7 +2097,7 @@ class AppConfigWindow(QDialog):
 
         layout.addWidget(appearance_group)
 
-        dir_group = QGroupBox(self.tr("Directory Memory"))
+        dir_group = QGroupBox(self.tr("Folder Memory"))
         dir_layout = QVBoxLayout(dir_group)
 
         self.remember_input_dir_cb = QCheckBox(
@@ -2099,7 +2105,7 @@ class AppConfigWindow(QDialog):
         )
         self.remember_input_dir_cb.setToolTip(
             self.tr(
-                "When enabled, the app will remember and restore the last used input directory on startup"
+                "When enabled, the app will remember and restore the last used input folder on startup"
             )
         )
         dir_layout.addWidget(self.remember_input_dir_cb)
@@ -2109,7 +2115,7 @@ class AppConfigWindow(QDialog):
         )
         self.remember_output_dir_cb.setToolTip(
             self.tr(
-                "When enabled, the app will remember and restore the last used output directory on startup"
+                "When enabled, the app will remember and restore the last used output folder on startup"
             )
         )
         dir_layout.addWidget(self.remember_output_dir_cb)

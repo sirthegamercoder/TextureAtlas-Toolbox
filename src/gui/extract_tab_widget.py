@@ -447,15 +447,9 @@ class ExtractTabWidget(BaseTabWidget):
             ]
         )
         header = self.unified_tree.header()
-        header.setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        header.setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        header.setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
-        )
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(False)
         tl.addWidget(self.unified_tree)
         self._view_stack.addWidget(tree_page)
@@ -533,9 +527,7 @@ class ExtractTabWidget(BaseTabWidget):
             top.setFont(0, font)
 
             # Parse animations with frame counts for this spritesheet
-            anim_frame_counts = self._get_animation_frame_counts(
-                sheet_name, data_files
-            )
+            anim_frame_counts = self._get_animation_frame_counts(sheet_name, data_files)
             total_frames = 0
             for aname, fcount in anim_frame_counts.items():
                 child = QTreeWidgetItem(top, [aname, "", ""])
@@ -613,9 +605,7 @@ class ExtractTabWidget(BaseTabWidget):
                 )
 
             elif "css" in data_files:
-                frame_counts = self._frame_counts_via_registry(
-                    data_files["css"], smart
-                )
+                frame_counts = self._frame_counts_via_registry(data_files["css"], smart)
 
             elif "tpsheet" in data_files:
                 frame_counts = self._frame_counts_via_registry(
@@ -762,10 +752,10 @@ class ExtractTabWidget(BaseTabWidget):
         dir_grp = QGroupBox(self.tr("Directories"))
         dlay = QVBoxLayout(dir_grp)
 
-        self.input_button = QPushButton(self.tr("Select input directory"))
+        self.input_button = QPushButton(self.tr("Select Input Folder"))
         dlay.addWidget(self.input_button)
 
-        self.input_dir_label = QLabel(self.tr("No input directory selected"))
+        self.input_dir_label = QLabel(self.tr("No input folder selected"))
         self.input_dir_label.setProperty("cssClass", "path")
         self.input_dir_label.setFrameShape(QFrame.Shape.NoFrame)
         self.input_dir_label.setWordWrap(True)
@@ -774,10 +764,10 @@ class ExtractTabWidget(BaseTabWidget):
         )
         dlay.addWidget(self.input_dir_label)
 
-        self.output_button = QPushButton(self.tr("Select output directory"))
+        self.output_button = QPushButton(self.tr("Select Output Folder"))
         dlay.addWidget(self.output_button)
 
-        self.output_dir_label = QLabel(self.tr("No output directory selected"))
+        self.output_dir_label = QLabel(self.tr("No output folder selected"))
         self.output_dir_label.setProperty("cssClass", "path")
         self.output_dir_label.setFrameShape(QFrame.Shape.NoFrame)
         self.output_dir_label.setWordWrap(True)
@@ -1964,8 +1954,8 @@ class ExtractTabWidget(BaseTabWidget):
         if hasattr(self, "unified_tree"):
             self.unified_tree.clear()
 
-        self.input_dir_label.setText(self.tr("No input directory selected"))
-        self.output_dir_label.setText(self.tr("No output directory selected"))
+        self.input_dir_label.setText(self.tr("No input folder selected"))
+        self.output_dir_label.setText(self.tr("No output folder selected"))
 
         self.parent_app.settings_manager.animation_settings.clear()
         self.parent_app.settings_manager.spritesheet_settings.clear()
@@ -2961,11 +2951,11 @@ class ExtractTabWidget(BaseTabWidget):
         if not self.parent_app:
             return False, "No parent application"
 
-        if self.input_dir_label.text() == self.tr("No input directory selected"):
-            return False, self.tr("Please select an input directory first.")
+        if self.input_dir_label.text() == self.tr("No input folder selected"):
+            return False, self.tr("Please select an input folder first.")
 
-        if self.output_dir_label.text() == self.tr("No output directory selected"):
-            return False, self.tr("Please select an output directory first.")
+        if self.output_dir_label.text() == self.tr("No output folder selected"):
+            return False, self.tr("Please select an output folder first.")
 
         if not (
             self.animation_export_group.isChecked()

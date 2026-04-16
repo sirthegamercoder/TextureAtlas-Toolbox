@@ -1007,9 +1007,7 @@ class Ui_TextureAtlasToolboxApp(object):
 
     def retranslateUi(self, TextureAtlasToolboxApp):
         self.select_directory.setText(
-            QCoreApplication.translate(
-                "TextureAtlasToolboxApp", "Select directory", None
-            )
+            QCoreApplication.translate("TextureAtlasToolboxApp", "Select folder", None)
         )
         self.select_files.setText(
             QCoreApplication.translate("TextureAtlasToolboxApp", "Select files", None)
@@ -1030,10 +1028,14 @@ class Ui_TextureAtlasToolboxApp(object):
             QCoreApplication.translate("TextureAtlasToolboxApp", "Preferences", None)
         )
         self.help_manual.setText(
-            QCoreApplication.translate("TextureAtlasToolboxApp", "User Manual (Online)", None)
+            QCoreApplication.translate(
+                "TextureAtlasToolboxApp", "User Manual (Online)", None
+            )
         )
         self.help_fnf.setText(
-            QCoreApplication.translate("TextureAtlasToolboxApp", "FNF Guide (Online)", None)
+            QCoreApplication.translate(
+                "TextureAtlasToolboxApp", "FNF Guide (Online)", None
+            )
         )
         self.show_contributors.setText(
             QCoreApplication.translate(
@@ -1070,22 +1072,22 @@ class Ui_TextureAtlasToolboxApp(object):
         # endif // QT_CONFIG(statustip)
         self.input_button.setText(
             QCoreApplication.translate(
-                "TextureAtlasToolboxApp", "Select input directory", None
+                "TextureAtlasToolboxApp", "Select Input Folder", None
             )
         )
         self.output_button.setText(
             QCoreApplication.translate(
-                "TextureAtlasToolboxApp", "Select output directory", None
+                "TextureAtlasToolboxApp", "Select Output Folder", None
             )
         )
         self.input_dir_label.setText(
             QCoreApplication.translate(
-                "TextureAtlasToolboxApp", "No input directory selected", None
+                "TextureAtlasToolboxApp", "No input folder selected", None
             )
         )
         self.output_dir_label.setText(
             QCoreApplication.translate(
-                "TextureAtlasToolboxApp", "No output directory selected", None
+                "TextureAtlasToolboxApp", "No output folder selected", None
             )
         )
         # if QT_CONFIG(statustip)
@@ -1433,13 +1435,13 @@ class Ui_TextureAtlasToolboxApp(object):
         self.add_directory_button.setStatusTip(
             QCoreApplication.translate(
                 "TextureAtlasToolboxApp",
-                "Adds all images from the selected directory to the atlas generator",
+                "Adds all images from the selected folder to the atlas generator",
                 None,
             )
         )
         # endif // QT_CONFIG(statustip)
         self.add_directory_button.setText(
-            QCoreApplication.translate("TextureAtlasToolboxApp", "Directory", None)
+            QCoreApplication.translate("TextureAtlasToolboxApp", "Folder", None)
         )
         # if QT_CONFIG(statustip)
         self.add_files_button.setStatusTip(

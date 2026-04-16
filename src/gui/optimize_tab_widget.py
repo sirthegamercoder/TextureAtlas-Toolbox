@@ -284,7 +284,7 @@ class OptimizeTabWidget(BaseTabWidget):
         output_layout.addWidget(self._overwrite_check)
 
         output_dir_row = QHBoxLayout()
-        self._output_dir_label = QLabel(self.tr("No output directory selected"))
+        self._output_dir_label = QLabel(self.tr("No output folder selected"))
         self._output_dir_label.setWordWrap(True)
         self._select_output_btn = QPushButton(self.tr("Select Output Folder"))
         output_dir_row.addWidget(self._output_dir_label, stretch=1)
@@ -617,8 +617,7 @@ class OptimizeTabWidget(BaseTabWidget):
             self.tr("Select output folder"),
             (
                 self._output_dir_label.text()
-                if self._output_dir_label.text()
-                != self.tr("No output directory selected")
+                if self._output_dir_label.text() != self.tr("No output folder selected")
                 else ""
             ),
         )
@@ -750,8 +749,7 @@ class OptimizeTabWidget(BaseTabWidget):
             )
         else:
             summary = self.tr(
-                "Done! {optimized} optimized, {skipped} skipped, "
-                "{failed} failed."
+                "Done! {optimized} optimized, {skipped} skipped, " "{failed} failed."
             ).format(
                 optimized=success_count,
                 skipped=skipped_count,
@@ -777,9 +775,7 @@ class OptimizeTabWidget(BaseTabWidget):
         # Finalize progress window
         if self._progress_window is not None:
             self._progress_window.update_progress(len(results), len(results))
-            self._progress_window.finish(
-                success=not error_details, message=summary
-            )
+            self._progress_window.finish(success=not error_details, message=summary)
 
     def _on_failed(self, error: str):
         self._set_processing(False)
@@ -844,7 +840,7 @@ class OptimizeTabWidget(BaseTabWidget):
 
         if not overwrite:
             label_text = self._output_dir_label.text()
-            if label_text == self.tr("No output directory selected") or not label_text:
+            if label_text == self.tr("No output folder selected") or not label_text:
                 QMessageBox.warning(
                     self,
                     self.tr("No output folder"),

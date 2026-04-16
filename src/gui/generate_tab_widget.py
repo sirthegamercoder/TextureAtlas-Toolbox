@@ -566,7 +566,7 @@ class GenerateTabWidget(BaseTabWidget):
         self._add_job_action = add_menu.addAction(self.tr("Add Spritesheet Job"))
         add_menu.addSeparator()
         self._add_files_action = add_menu.addAction(self.tr("Add Files"))
-        self._add_directory_action = add_menu.addAction(self.tr("Add Directory"))
+        self._add_directory_action = add_menu.addAction(self.tr("Add Folder"))
         self._add_atlas_action = add_menu.addAction(self.tr("Add Existing Atlas"))
 
         # Set icons on menu actions for visual clarity
@@ -826,7 +826,7 @@ class GenerateTabWidget(BaseTabWidget):
                     QMessageBox.information(
                         self,
                         self.APP_NAME,
-                        self.tr("No image files found in the selected directory."),
+                        self.tr("No image files found in the selected folder."),
                     )
 
             self.update_frame_info()
@@ -919,8 +919,7 @@ class GenerateTabWidget(BaseTabWidget):
             msg.setWindowTitle(self.APP_NAME)
             msg.setText(
                 self.tr(
-                    "An atlas is already loaded. How would you like to "
-                    "import '{0}'?"
+                    "An atlas is already loaded. How would you like to " "import '{0}'?"
                 ).format(atlas_name)
             )
             combine_btn = msg.addButton(
@@ -1007,9 +1006,7 @@ class GenerateTabWidget(BaseTabWidget):
         for animation_name, frame_paths in results.items():
             if not frame_paths:
                 continue
-            self.animation_tree.add_animation_group(
-                animation_name, job_item=target_job
-            )
+            self.animation_tree.add_animation_group(animation_name, job_item=target_job)
             for frame_path in frame_paths:
                 if not self.is_frame_already_added(frame_path):
                     self.animation_tree.add_frame_to_animation(
@@ -1063,9 +1060,7 @@ class GenerateTabWidget(BaseTabWidget):
         self.add_existing_atlas_button.setEnabled(True)
         self._add_atlas_action.setEnabled(True)
         if self._import_progress_window is not None:
-            self._import_progress_window.finish(
-                success=False, message=str(error_msg)
-            )
+            self._import_progress_window.finish(success=False, message=str(error_msg))
 
         if self._import_temp_dir and self._import_temp_dir.exists():
             import shutil
@@ -1947,7 +1942,7 @@ class GenerateTabWidget(BaseTabWidget):
             # Multiple jobs – pick output directory
             output_dir = QFileDialog.getExistingDirectory(
                 self,
-                self.tr("Select output directory for spritesheets"),
+                self.tr("Select output folder for spritesheets"),
                 "",
             )
             if not output_dir:
@@ -1988,14 +1983,16 @@ class GenerateTabWidget(BaseTabWidget):
         current_idx = len(self._job_results) + 1
 
         job_status = self.tr("Generating {0} ({1}/{2})...").format(
-                job_name, current_idx, total_jobs
-            )
+            job_name, current_idx, total_jobs
+        )
         log_entry = self.tr("--- Job {0}/{1}: {2} ---").format(
-                current_idx, total_jobs, job_name
-            )
+            current_idx, total_jobs, job_name
+        )
 
         if self._progress_window is not None:
-            self._progress_window.update_progress(current_idx - 1, total_jobs, job_status)
+            self._progress_window.update_progress(
+                current_idx - 1, total_jobs, job_status
+            )
             self._progress_window.append_log(log_entry)
 
         all_frames = [p for paths in animation_groups.values() for p in paths]
@@ -2085,11 +2082,11 @@ class GenerateTabWidget(BaseTabWidget):
         """Handle a single job finishing; advance to the next."""
         self._job_results.append((self._current_job_name, results))
         log_entry = self.tr("Completed: {0} ({1}x{2}, {3} frames)").format(
-                results.get("atlas_path", "?"),
-                results.get("atlas_size", [0, 0])[0],
-                results.get("atlas_size", [0, 0])[1],
-                results.get("frames_count", 0),
-            )
+            results.get("atlas_path", "?"),
+            results.get("atlas_size", [0, 0])[0],
+            results.get("atlas_size", [0, 0])[1],
+            results.get("frames_count", 0),
+        )
         if self._progress_window is not None:
             self._progress_window.append_log(log_entry)
         self._start_next_job()
@@ -2097,7 +2094,9 @@ class GenerateTabWidget(BaseTabWidget):
     def _on_job_failed(self, error_message):
         """Handle a job failure; log and continue with remaining jobs."""
         self._job_results.append((self._current_job_name, {"error": error_message}))
-        log_entry = self.tr("FAILED: {0} - {1}").format(self._current_job_name, error_message)
+        log_entry = self.tr("FAILED: {0} - {1}").format(
+            self._current_job_name, error_message
+        )
         if self._progress_window is not None:
             self._progress_window.append_log(log_entry)
         self._start_next_job()
@@ -2202,8 +2201,6 @@ class GenerateTabWidget(BaseTabWidget):
             self.atlas_size_label_1.setText(self.tr("Width"))
             self.atlas_size_label_2.setText(self.tr("Height"))
 
-
-
         elif method_text == "MinMax":
             # Enable spinboxes for min/max size input
             self.atlas_size_spinbox_1.setEnabled(True)
@@ -2219,8 +2216,6 @@ class GenerateTabWidget(BaseTabWidget):
             if self.atlas_size_spinbox_2.value() == 0:
                 self.atlas_size_spinbox_2.setValue(2048)
 
-
-
         elif method_text == "Manual":
             # Enable spinboxes for manual width/height input
             self.atlas_size_spinbox_1.setEnabled(True)
@@ -2235,8 +2230,6 @@ class GenerateTabWidget(BaseTabWidget):
                 self.atlas_size_spinbox_1.setValue(1024)
             if self.atlas_size_spinbox_2.value() == 0:
                 self.atlas_size_spinbox_2.setValue(1024)
-
-
 
     def __del__(self):
         """Cleanup temporary directories and worker thread when widget is destroyed."""
