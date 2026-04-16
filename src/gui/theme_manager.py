@@ -839,7 +839,9 @@ QHeaderView::section {{
     border: none;
     border-bottom: 1px solid {border};
     padding: 4px 8px;
+    font-size: 12px;
     font-weight: 600;
+    text-align: left;
 }}
 
 /* ── Splitter — VS Code style, thin line + grab area ── */
@@ -1167,7 +1169,8 @@ QHeaderView::section {{
     border-bottom: 3px solid {primary};
     padding: 8px 12px;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 11px;
+    text-align: left;
 }}
 QSplitter {{ background-color: transparent; }}
 QSplitter::handle {{
@@ -1504,7 +1507,16 @@ QCheckBox::indicator:checked {{
     border-color: {primary};
 }}
 QGroupBox QCheckBox {{
-    background-color: rgba({surface_rgb}, 0.65);
+    background-color: transparent;
+}}
+QGroupBox QLabel {{
+    background-color: transparent;
+}}
+QGroupBox QComboBox {{
+    background-color: rgba({input_bg_rgb}, 0.5);
+}}
+QGroupBox QSpinBox, QGroupBox QDoubleSpinBox {{
+    background-color: rgba({input_bg_rgb}, 0.5);
 }}
 QTextEdit {{
     background-color: rgba({input_bg_rgb}, 0.5);
@@ -1990,7 +2002,11 @@ def apply_theme(
             pal.setColor(QPalette.ColorRole.BrightText, QColor("#000000"))
             pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#808080"))
             app.setPalette(pal)
-        overlay = arrow_qss
+        # Only overlay specific fixes on top of qt-material's stylesheet
+        _header_fix = (
+            "QHeaderView::section {" "  font-size: 11px;" "  text-align: left;" "}"
+        )
+        overlay = _header_fix + arrow_qss
         if variant in ("dark", "amoled"):
             overlay = _MATERIAL_DARK_TEXT_FIX + overlay
         if variant == "amoled":
