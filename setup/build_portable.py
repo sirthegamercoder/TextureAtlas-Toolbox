@@ -576,6 +576,9 @@ import site
             "certifi",
             "charset_normalizer",
             "idna",
+            # Theme dependencies
+            "qt_material",
+            "qtawesome",
             # Other utilities
             "py7zr",
             "tqdm",
