@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -54,6 +55,17 @@ _THEME_VARIANTS = [
     ("amoled", "AMOLED"),
 ]
 
+_ACCENT_PRESETS = [
+    ("default", "Default"),
+    ("blue", "Blue"),
+    ("purple", "Purple"),
+    ("green", "Green"),
+    ("red", "Red"),
+    ("orange", "Orange"),
+    ("pink", "Pink"),
+    ("teal", "Teal"),
+]
+
 
 class FirstStartDialog(QDialog):
     """Dialog shown on first application launch.
@@ -93,6 +105,7 @@ class FirstStartDialog(QDialog):
         apply_theme_callback=None,
         current_family: str = "clean",
         current_variant: str = "dark",
+        current_accent: str = "default",
     ):
         """Initialize the first-start dialog.
 
@@ -104,6 +117,7 @@ class FirstStartDialog(QDialog):
                 theme preview.
             current_family: Currently active theme family key.
             current_variant: Currently active theme variant key.
+            current_accent: Currently active accent preset key.
         """
         super().__init__(parent)
         self.translation_manager = translation_manager or get_translation_manager()
@@ -119,6 +133,7 @@ class FirstStartDialog(QDialog):
         # Store theme selection to preserve across retranslation
         self._current_family = current_family
         self._current_variant = current_variant
+        self._current_accent = current_accent
 
         self.setup_ui()
 
@@ -167,8 +182,8 @@ class FirstStartDialog(QDialog):
         # ── Page stack ──────────────────────────────────────────────────
         self.stacked = QStackedWidget()
         self.stacked.addWidget(self._build_language_page())
-        self.stacked.addWidget(self._build_theme_page())
         self.stacked.addWidget(self._build_finish_page())
+        self.stacked.addWidget(self._build_theme_page())
         root.addWidget(self.stacked, 1)
 
         # ── Navigation buttons ──────────────────────────────────────────
@@ -237,7 +252,7 @@ class FirstStartDialog(QDialog):
         return page
 
     def _build_theme_page(self) -> QWidget:
-        """Build Step 2 — Theme selection with live preview panel."""
+        """Build Step 3 — Theme selection with live preview panel."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 4, 0, 0)
@@ -278,6 +293,22 @@ class FirstStartDialog(QDialog):
         variant_row.addWidget(self.variant_combo)
         variant_row.addStretch()
         theme_layout.addLayout(variant_row)
+
+        accent_row = QHBoxLayout()
+        accent_row.setSpacing(8)
+        self.accent_label = QLabel(self.tr("Accent color:"))
+        accent_row.addWidget(self.accent_label)
+        self.accent_combo = QComboBox()
+        self.accent_combo.setMinimumWidth(180)
+        for key, label in _ACCENT_PRESETS:
+            self.accent_combo.addItem(label, key)
+        for i in range(self.accent_combo.count()):
+            if self.accent_combo.itemData(i) == self._current_accent:
+                self.accent_combo.setCurrentIndex(i)
+                break
+        accent_row.addWidget(self.accent_combo)
+        accent_row.addStretch()
+        theme_layout.addLayout(accent_row)
 
         self.theme_hint = QLabel(
             self.tr("You can change this later in Options \u2192 Theme.")
@@ -332,7 +363,7 @@ class FirstStartDialog(QDialog):
         return page
 
     def _build_finish_page(self) -> QWidget:
-        """Build Step 3 — What's New and update preferences."""
+        """Build Step 2 — What's New and update preferences."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 4, 0, 0)
@@ -433,6 +464,7 @@ class FirstStartDialog(QDialog):
         self._current_variant = (
             self.variant_combo.currentData() or self._current_variant
         )
+        self._current_accent = self.accent_combo.currentData() or self._current_accent
 
         self.selected_language = new_lang
         self.language_changed = new_lang != self.initial_language
@@ -466,6 +498,7 @@ class FirstStartDialog(QDialog):
         return {
             "family": self.family_combo.currentData() or "clean",
             "variant": self.variant_combo.currentData() or "dark",
+            "accent": self.accent_combo.currentData() or "default",
         }
 
     # ── Wizard navigation ───────────────────────────────────────────────
@@ -496,8 +529,8 @@ class FirstStartDialog(QDialog):
         )
         step_names = [
             self.tr("Language"),
+            self.tr("What's New"),
             self.tr("Theme"),
-            self.tr("Finish"),
         ]
         for i, dot in enumerate(self.step_dots):
             dot.setText("\u25cf" if i <= self._current_step else "\u25cb")
@@ -526,20 +559,7 @@ class FirstStartDialog(QDialog):
                 "Note: Some text may not update until the application is restarted."
             )
         )
-        # Step 2 — Theme
-        self.theme_group.setTitle(self.tr("Theme"))
-        self.family_label.setText(self.tr("Theme family:"))
-        self.variant_label.setText(self.tr("Appearance:"))
-        self.theme_hint.setText(
-            self.tr("You can change this later in Options \u2192 Theme.")
-        )
-        self.preview_group.setTitle(self.tr("Preview"))
-        self.preview_btn.setText(self.tr("Button"))
-        self.preview_primary_btn.setText(self.tr("Primary"))
-        self.preview_checkbox.setText(self.tr("Checkbox"))
-        self.preview_radio.setText(self.tr("Radio"))
-        self.preview_input.setPlaceholderText(self.tr("Text input"))
-        # Step 3 — Finish
+        # Step 2 — What's New
         self.notice_group.setTitle(self.tr("What's New"))
         self.notice_label.setText(
             self.tr(
@@ -567,6 +587,20 @@ class FirstStartDialog(QDialog):
         self.auto_download_checkbox.setText(
             self.tr(CheckBoxLabels.AUTO_DOWNLOAD_AVAILABLE)
         )
+        # Step 3 — Theme
+        self.theme_group.setTitle(self.tr("Theme"))
+        self.family_label.setText(self.tr("Theme family:"))
+        self.variant_label.setText(self.tr("Appearance:"))
+        self.accent_label.setText(self.tr("Accent color:"))
+        self.theme_hint.setText(
+            self.tr("You can change this later in Options \u2192 Theme.")
+        )
+        self.preview_group.setTitle(self.tr("Preview"))
+        self.preview_btn.setText(self.tr("Button"))
+        self.preview_primary_btn.setText(self.tr("Primary"))
+        self.preview_checkbox.setText(self.tr("Checkbox"))
+        self.preview_radio.setText(self.tr("Radio"))
+        self.preview_input.setPlaceholderText(self.tr("Text input"))
         # Navigation
         self.back_button.setText(self.tr("Back"))
         self._update_navigation()
@@ -731,7 +765,23 @@ def show_first_start_dialog(
     # Read existing settings for pre-population (relevant for upgrades)
     current_family = app_config.get_theme_family()
     current_variant = app_config.get_theme_variant()
+    current_accent = app_config.get_accent_key()
     current_lang = app_config.settings.get("language", "auto")
+
+    # For fresh installs, detect system light/dark preference
+    if wizard_ver == 0:
+        current_family = "clean"
+        current_accent = "default"
+        app_inst = QApplication.instance()
+        if app_inst:
+            scheme = app_inst.styleHints().colorScheme()
+            if scheme == Qt.ColorScheme.Light:
+                current_variant = "light"
+            else:
+                current_variant = "dark"
+        # Apply detected theme immediately so the wizard opens styled
+        if apply_theme_callback:
+            apply_theme_callback(current_family, current_variant)
 
     if current_lang == "auto":
         system_locale = translation_manager.get_system_locale()
@@ -747,6 +797,7 @@ def show_first_start_dialog(
         apply_theme_callback=apply_theme_callback,
         current_family=current_family,
         current_variant=current_variant,
+        current_accent=current_accent,
     )
 
     result = dialog.exec()
@@ -761,6 +812,7 @@ def show_first_start_dialog(
         app_config.set_theme_settings(
             family=theme_prefs["family"],
             variant=theme_prefs["variant"],
+            accent_key=theme_prefs["accent"],
         )
 
         # Save update preferences
