@@ -1900,6 +1900,11 @@ QPushButton:pressed {{
     background-color: {btn_pressed};
     border-style: inset;
 }}
+QPushButton:focus {{
+    outline: none;
+    border: 2px outset {border};
+    padding: 2px 11px;
+}}
 QPushButton:disabled {{
     background-color: {bg};
     color: {text_secondary};
@@ -2004,9 +2009,57 @@ QHeaderView::section {{
 }}
 /* ── Splitter ── */
 QSplitter {{ background-color: transparent; }}
-QSplitter::handle {{ background-color: {border}; }}
-QSplitter::handle:horizontal {{ width: 4px; }}
-QSplitter::handle:vertical {{ height: 4px; }}
+QSplitter::handle {{
+    background-color: {surface};
+    border: 2px outset {border};
+}}
+QSplitter::handle:horizontal {{ width: 6px; }}
+QSplitter::handle:vertical {{ height: 6px; }}
+/* ── Scrollbar ── */
+QScrollBar:vertical {{
+    background-color: {surface};
+    width: 16px;
+    border: none;
+}}
+QScrollBar::handle:vertical {{
+    background-color: {btn_bg};
+    border: 2px outset {border};
+    min-height: 20px;
+    border-radius: 0px;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 16px;
+    background-color: {btn_bg};
+    border: 2px outset {border};
+    subcontrol-origin: margin;
+}}
+QScrollBar::add-line:vertical {{ subcontrol-position: bottom; }}
+QScrollBar::sub-line:vertical {{ subcontrol-position: top; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background-color: {surface};
+}}
+QScrollBar:horizontal {{
+    background-color: {surface};
+    height: 16px;
+    border: none;
+}}
+QScrollBar::handle:horizontal {{
+    background-color: {btn_bg};
+    border: 2px outset {border};
+    min-width: 20px;
+    border-radius: 0px;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 16px;
+    background-color: {btn_bg};
+    border: 2px outset {border};
+    subcontrol-origin: margin;
+}}
+QScrollBar::add-line:horizontal {{ subcontrol-position: right; }}
+QScrollBar::sub-line:horizontal {{ subcontrol-position: left; }}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background-color: {surface};
+}}
 /* ── Progress ── */
 QProgressBar {{
     background-color: {input_bg};
@@ -2017,6 +2070,8 @@ QProgressBar {{
 }}
 QProgressBar::chunk {{
     background-color: {primary};
+    width: 12px;
+    margin: 1px;
 }}
 /* ── Checkbox ── */
 QCheckBox::indicator {{
@@ -2325,6 +2380,57 @@ QSplitter::handle {{ background-color: {border}; }}
 QSplitter::handle:horizontal {{ width: 4px; }}
 QSplitter::handle:vertical {{ height: 4px; }}
 QSplitter::handle:hover {{ background-color: {primary}; }}
+/* ── Scrollbar ── */
+QScrollBar:vertical {{
+    background-color: {bg};
+    width: 16px;
+    border: none;
+}}
+QScrollBar::handle:vertical {{
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    border: 1px solid {border};
+    border-radius: 2px;
+    min-height: 20px;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 16px;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    border: 1px solid {border};
+    border-radius: 2px;
+    subcontrol-origin: margin;
+}}
+QScrollBar::add-line:vertical {{ subcontrol-position: bottom; }}
+QScrollBar::sub-line:vertical {{ subcontrol-position: top; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background-color: {bg};
+}}
+QScrollBar:horizontal {{
+    background-color: {bg};
+    height: 16px;
+    border: none;
+}}
+QScrollBar::handle:horizontal {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    border: 1px solid {border};
+    border-radius: 2px;
+    min-width: 20px;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 16px;
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    border: 1px solid {border};
+    border-radius: 2px;
+    subcontrol-origin: margin;
+}}
+QScrollBar::add-line:horizontal {{ subcontrol-position: right; }}
+QScrollBar::sub-line:horizontal {{ subcontrol-position: left; }}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background-color: {bg};
+}}
 /* ── Progress ── */
 QProgressBar {{
     background-color: {input_bg};
