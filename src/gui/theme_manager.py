@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -43,6 +44,7 @@ from PySide6.QtGui import (
     QAction,
     QColor,
     QFont,
+    QFontDatabase,
     QIcon,
     QPainter,
     QPalette,
@@ -146,7 +148,14 @@ _ICON_NAMES: dict[str, tuple[str, str, str]] = {
     "keyboard": ("msc.keyboard", "mdi6.keyboard", "ph.keyboard"),
 }
 
-_FAMILY_PREFIX_IDX = {"clean": 0, "material": 1, "fluent": 2}
+_FAMILY_PREFIX_IDX = {
+    "clean": 0,
+    "material": 1,
+    "fluent": 2,
+    "win95": 0,
+    "winxp": 0,
+    "macos": 2,
+}
 
 _ICON_FALLBACK: dict[str, str] = {
     "folder_open": "\U0001f4c2",
@@ -196,6 +205,37 @@ _ICON_FALLBACK: dict[str, str] = {
     "keyboard": "\u2328",
 }
 
+# Path to the locally-stored icon template PNGs.
+_ICONS_DIR = Path(__file__).resolve().parent.parent / "resources" / "icons"
+
+# Path to bundled font files.
+_FONTS_DIR = Path(__file__).resolve().parent.parent / "resources" / "fonts"
+
+_bundled_fonts_loaded = False
+
+
+def _load_bundled_fonts() -> None:
+    """Register any bundled TTF/OTF fonts with Qt (idempotent)."""
+    global _bundled_fonts_loaded
+    if _bundled_fonts_loaded or not _FONTS_DIR.is_dir():
+        return
+    for font_file in _FONTS_DIR.iterdir():
+        if font_file.suffix.lower() in (".ttf", ".otf"):
+            QFontDatabase.addApplicationFont(str(font_file))
+    _bundled_fonts_loaded = True
+
+
+def _recolor_pixmap(source: QPixmap, color: str) -> QPixmap:
+    """Return a copy of *source* recoloured to *color* (preserving alpha)."""
+    result = QPixmap(source.size())
+    result.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(result)
+    painter.drawPixmap(0, 0, source)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(result.rect(), QColor(color))
+    painter.end()
+    return result
+
 
 class ThemeIconProvider:
     """Provides QIcon objects coloured for the active theme family.
@@ -228,20 +268,27 @@ class ThemeIconProvider:
 
     def icon(self, key: str) -> QIcon:
         """Return a QIcon for the given icon key, themed to current family."""
-        if not _HAS_QTA:
-            return QIcon()
         names = _ICON_NAMES.get(key)
         if not names:
             return QIcon()
-        idx = _FAMILY_PREFIX_IDX.get(self._family, 0)
-        name = names[idx]
-        try:
-            return qta.icon(name, color=self._color)
-        except Exception:
+        # Prefer local PNG template — recolour at runtime.
+        png_path = _ICONS_DIR / self._family / f"{key}.png"
+        if png_path.exists():
+            base = QPixmap(str(png_path))
+            if not base.isNull():
+                return QIcon(_recolor_pixmap(base, self._color))
+        # Fallback to qtawesome.
+        if _HAS_QTA:
+            idx = _FAMILY_PREFIX_IDX.get(self._family, 0)
+            name = names[idx]
             try:
-                return qta.icon(names[0], color=self._color)
+                return qta.icon(name, color=self._color)
             except Exception:
-                return QIcon()
+                try:
+                    return qta.icon(names[0], color=self._color)
+                except Exception:
+                    pass
+        return QIcon()
 
     def fallback_text(self, key: str) -> str:
         """Unicode fallback when qtawesome is unavailable."""
@@ -269,6 +316,9 @@ _arrow_icon_dir: str | None = None
 def _generate_widget_arrows(color: str, family: str, branch_color: str = "") -> str:
     """Generate arrow/indicator PNGs for QSS and return the directory path.
 
+    Prefers locally-stored template PNGs (recoloured at runtime).
+    Falls back to qtawesome when local files are missing.
+
     Args:
         color: Colour for spinbox/combo arrows.
         family: Icon family name.
@@ -278,8 +328,6 @@ def _generate_widget_arrows(color: str, family: str, branch_color: str = "") -> 
     Returns forward-slash path suitable for QSS ``image: url(...)`` usage.
     """
     global _arrow_icon_dir
-    if not _HAS_QTA:
-        return ""
     # Always create a new directory so Qt doesn't serve cached images
     # from a stale URL after a theme/accent change.
     _arrow_icon_dir = tempfile.mkdtemp(prefix="tatgf_arrows_")
@@ -290,18 +338,64 @@ def _generate_widget_arrows(color: str, family: str, branch_color: str = "") -> 
     idx = _FAMILY_PREFIX_IDX.get(family, 0)
     for name, fonts in _ARROW_NAMES.items():
         c = branch_color if name.startswith("branch-") else color
-        icon_obj = qta.icon(fonts[idx], color=c)
-        pixmap = icon_obj.pixmap(QSize(16, 16))
-        pixmap.save(os.path.join(_arrow_icon_dir, f"{name}.png"))
+        # Try local template PNG first.
+        local_png = _ICONS_DIR / family / f"{name}.png"
+        if local_png.exists():
+            base = QPixmap(str(local_png))
+            if not base.isNull():
+                out = _recolor_pixmap(base, c).scaled(
+                    QSize(16, 16),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                out.save(os.path.join(_arrow_icon_dir, f"{name}.png"))
+                continue
+        # Fallback to qtawesome.
+        if _HAS_QTA:
+            icon_obj = qta.icon(fonts[idx], color=c)
+            pixmap = icon_obj.pixmap(QSize(16, 16))
+            pixmap.save(os.path.join(_arrow_icon_dir, f"{name}.png"))
 
-    # Fluent checkbox checkmark (white on accent background)
-    _generate_checkmark_png(_arrow_icon_dir)
+    # Checkbox checkmark (white on accent background)
+    _generate_checkmark_png(_arrow_icon_dir, family=family)
 
     return _arrow_icon_dir.replace("\\", "/")
 
 
-def _generate_checkmark_png(directory: str, *, size: int = 18) -> None:
-    """Generate a white checkmark PNG for Fluent checkbox checked state."""
+def _generate_checkmark_png(
+    directory: str, *, size: int = 18, family: str = ""
+) -> None:
+    """Copy or generate a white checkmark PNG for checkbox checked state.
+
+    Looks for a family-specific checkmark first (e.g. ``icons/win95/checkmark.png``),
+    then falls back to the shared ``icons/checkmark.png``.
+    """
+    # Try family-specific checkmark first.
+    if family:
+        fam_path = _ICONS_DIR / family / "checkmark.png"
+        if fam_path.exists():
+            base = QPixmap(str(fam_path))
+            if not base.isNull():
+                out = base.scaled(
+                    QSize(size, size),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                out.save(os.path.join(directory, "checkmark.png"))
+                return
+    # Shared checkmark template.
+    local = _ICONS_DIR / "checkmark.png"
+    if local.exists():
+        base = QPixmap(str(local))
+        if not base.isNull():
+            out = base.scaled(
+                QSize(size, size),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            out.save(os.path.join(directory, "checkmark.png"))
+            return
+    # Fallback: draw at runtime.
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -371,12 +465,12 @@ QTreeWidget::branch:open:has-children:has-siblings {{
     return qss
 
 
-def _build_fluent_checkbox_qss(arrow_dir: str) -> str:
-    """QSS overlay adding the checkmark image to Fluent checkbox indicators."""
+def _build_checkbox_checkmark_qss(arrow_dir: str) -> str:
+    """QSS overlay adding the checkmark image to checkbox indicators."""
     if not arrow_dir:
         return ""
     return f"""
-/* ── Fluent checkbox checkmark overlay ── */
+/* ── Checkbox checkmark overlay ── */
 QCheckBox::indicator:checked,
 QGroupBox::indicator:checked {{
     image: url({arrow_dir}/checkmark.png);
@@ -429,6 +523,9 @@ THEME_FONTS: dict[str, tuple[str, ...]] = {
     "clean": ("Inter", "Segoe UI", "Helvetica Neue", "sans-serif"),
     "material": ("Roboto", "Noto Sans", "Segoe UI", "sans-serif"),
     "fluent": ("Segoe UI Variable", "Segoe UI", "Helvetica Neue", "sans-serif"),
+    "win95": ("MS Sans Serif", "Tahoma", "Microsoft Sans Serif", "sans-serif"),
+    "winxp": ("Tahoma", "Segoe UI", "Microsoft Sans Serif", "sans-serif"),
+    "macos": ("SF Pro Display", "Helvetica Neue", "Lucida Grande", "sans-serif"),
 }
 
 
@@ -499,6 +596,15 @@ THEME_LABELS: dict[str, str] = {
     "fluent_light": "Fluent Light",
     "fluent_dark": "Fluent Dark",
     "fluent_amoled": "Fluent AMOLED",
+    "win95_light": "Windows 95 Light",
+    "win95_dark": "Windows 95 Dark",
+    "win95_amoled": "Windows 95 AMOLED",
+    "winxp_light": "Windows XP Light",
+    "winxp_dark": "Windows XP Dark",
+    "winxp_amoled": "Windows XP AMOLED",
+    "macos_light": "macOS Light",
+    "macos_dark": "macOS Dark",
+    "macos_amoled": "macOS AMOLED",
 }
 
 THEME_LABELS_REV = {v: k for k, v in THEME_LABELS.items()}
@@ -1732,6 +1838,975 @@ QScrollArea { background-color: transparent; }
 QScrollArea > QWidget > QWidget { background-color: transparent; }
 """
 
+_WIN95_QSS = """
+/* ── Base ── */
+QMainWindow, QWidget {{
+    background-color: {bg};
+    color: {text};
+}}
+/* ── Tabs ── */
+QTabWidget::pane {{
+    border: 2px solid {border};
+    background-color: {surface};
+    padding: 2px;
+}}
+QTabBar::tab {{
+    background-color: {btn_bg};
+    color: {text};
+    border: 2px outset {border};
+    padding: 3px 10px;
+    margin-right: 1px;
+    min-width: 60px;
+}}
+QTabBar::tab:selected {{
+    background-color: {surface};
+    border-style: inset;
+    border-bottom: none;
+    padding-bottom: 5px;
+}}
+QTabBar::tab:hover:!selected {{
+    background-color: {hover};
+}}
+QTabBar::tear {{ width: 0; border: none; }}
+/* ── Group Boxes ── */
+QGroupBox {{
+    background-color: {surface};
+    border: 2px groove {border};
+    margin-top: 12px;
+    padding: 12px 6px 6px 6px;
+    font-weight: 700;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 1px 4px;
+    color: {text};
+    background-color: {surface};
+    left: 8px;
+}}
+/* ── Buttons ── */
+QPushButton {{
+    background-color: {btn_bg};
+    color: {btn_text};
+    border: 2px outset {border};
+    padding: 3px 12px;
+    min-height: 22px;
+    font-weight: 700;
+}}
+QPushButton:hover {{
+    background-color: {btn_hover};
+}}
+QPushButton:pressed {{
+    background-color: {btn_pressed};
+    border-style: inset;
+}}
+QPushButton:disabled {{
+    background-color: {bg};
+    color: {text_secondary};
+}}
+QPushButton[cssClass="primary"] {{
+    background-color: {primary};
+    color: {primary_text};
+    border: 2px outset {border};
+    font-weight: 700;
+}}
+QPushButton[cssClass="primary"]:hover {{
+    background-color: {primary_hover};
+}}
+QPushButton[cssClass="primary"]:pressed {{
+    border-style: inset;
+}}
+/* ── Inputs ── */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
+    background-color: {input_bg};
+    color: {text};
+    border: 2px inset {border};
+    padding: 2px 4px;
+    min-height: 20px;
+}}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+    border-color: {primary};
+}}
+QComboBox::drop-down {{ border: none; padding-right: 4px; }}
+QComboBox::down-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {text};
+    margin-right: 4px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {input_bg};
+    border: 2px inset {border};
+    selection-background-color: {primary};
+    selection-color: {primary_text};
+    outline: 0;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    border: 2px outset {border};
+    background-color: {btn_bg};
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    border: 2px outset {border};
+    background-color: {btn_bg};
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background-color: {hover};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid {text};
+    width: 0; height: 0;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {text};
+    width: 0; height: 0;
+}}
+/* ── Lists / Trees ── */
+QListWidget, QTreeWidget, QListView, QTreeView {{
+    background-color: {input_bg};
+    border: 2px inset {border};
+    padding: 1px;
+    outline: 0;
+}}
+QListWidget::item, QTreeWidget::item, QListView::item, QTreeView::item {{
+    padding: 2px 3px;
+}}
+QListWidget::item:selected, QTreeWidget::item:selected,
+QListView::item:selected, QTreeView::item:selected {{
+    background-color: {primary};
+    color: {primary_text};
+}}
+QListWidget::item:hover:!selected, QTreeWidget::item:hover:!selected,
+QListView::item:hover:!selected, QTreeView::item:hover:!selected {{
+    background-color: {hover};
+}}
+QHeaderView::section {{
+    background-color: {btn_bg};
+    color: {text};
+    border: 2px outset {border};
+    padding: 3px 6px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+}}
+/* ── Splitter ── */
+QSplitter {{ background-color: transparent; }}
+QSplitter::handle {{ background-color: {border}; }}
+QSplitter::handle:horizontal {{ width: 4px; }}
+QSplitter::handle:vertical {{ height: 4px; }}
+/* ── Progress ── */
+QProgressBar {{
+    background-color: {input_bg};
+    border: 2px inset {border};
+    text-align: center;
+    color: {text};
+    min-height: 18px;
+}}
+QProgressBar::chunk {{
+    background-color: {primary};
+}}
+/* ── Checkbox ── */
+QCheckBox::indicator {{
+    width: 13px;
+    height: 13px;
+    border: 2px inset {border};
+    background-color: {input_bg};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {primary};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {primary};
+    border-style: inset;
+}}
+QCheckBox::indicator:checked:hover {{
+    background-color: {primary_hover};
+}}
+QCheckBox::indicator:disabled {{
+    background-color: {bg};
+    border-color: {border};
+}}
+QCheckBox::indicator:checked:disabled {{
+    background-color: {text_secondary};
+}}
+QGroupBox::indicator {{
+    width: 13px;
+    height: 13px;
+    border: 2px inset {border};
+    background-color: {input_bg};
+}}
+QGroupBox::indicator:hover {{
+    border-color: {primary};
+}}
+QGroupBox::indicator:checked {{
+    background-color: {primary};
+    border-style: inset;
+}}
+QGroupBox::indicator:checked:hover {{
+    background-color: {primary_hover};
+}}
+QGroupBox QCheckBox {{
+    background-color: {surface};
+}}
+/* ── Text Edit ── */
+QTextEdit {{
+    background-color: {input_bg};
+    color: {text};
+    border: 2px inset {border};
+    padding: 2px;
+}}
+/* ── Menus ── */
+QMenuBar {{
+    background-color: {surface};
+    color: {text};
+    border-bottom: 2px outset {border};
+    padding: 1px 0px;
+}}
+QMenuBar::item {{
+    padding: 3px 8px;
+    background-color: transparent;
+}}
+QMenuBar::item:selected {{
+    background-color: {primary};
+    color: {primary_text};
+}}
+QMenu {{
+    background-color: {surface};
+    color: {text};
+    border: 2px outset {border};
+    padding: 2px;
+}}
+QMenu::icon {{
+    padding-left: 4px;
+}}
+QMenu::item {{
+    padding: 4px 24px 4px 8px;
+}}
+QMenu::item:selected {{
+    background-color: {primary};
+    color: {primary_text};
+}}
+QMenu::item:disabled {{
+    color: {text_secondary};
+}}
+QMenu::separator {{
+    height: 2px;
+    border-top: 1px solid {border};
+    border-bottom: 1px solid {input_bg};
+    background-color: transparent;
+    margin: 2px 4px;
+}}
+/* ── Status Bar ── */
+QStatusBar {{
+    background-color: {surface};
+    color: {text};
+    border-top: 2px groove {border};
+    padding: 1px 4px;
+}}
+QFrame[cssClass="card"] {{
+    background-color: {surface};
+    border: 2px groove {border};
+    padding: 6px;
+}}
+QToolTip {{
+    background-color: #FFFFE1;
+    color: #000000;
+    border: 1px solid #000000;
+    padding: 2px 4px;
+    font-size: 12px;
+}}
+QDialog {{
+    background-color: {bg};
+    color: {text};
+}}
+"""
+
+_WINXP_QSS = """
+/* ── Base ── */
+QMainWindow, QWidget {{
+    background-color: {bg};
+    color: {text};
+}}
+/* ── Tabs ── */
+QTabWidget::pane {{
+    border: 1px solid {border};
+    border-radius: 3px;
+    background-color: {surface};
+    padding: 2px;
+}}
+QTabBar::tab {{
+    background-color: {btn_bg};
+    color: {text};
+    border: 1px solid {border};
+    border-bottom: none;
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+    padding: 4px 12px;
+    margin-right: 2px;
+}}
+QTabBar::tab:selected {{
+    background-color: {surface};
+    border-bottom: 2px solid {primary};
+    font-weight: 600;
+}}
+QTabBar::tab:hover:!selected {{
+    background-color: {hover};
+}}
+QTabBar::tear {{ width: 0; border: none; }}
+/* ── Group Boxes ── */
+QGroupBox {{
+    background-color: {surface};
+    border: 1px solid {border};
+    border-top: 2px solid {primary};
+    border-radius: 6px;
+    margin-top: 12px;
+    padding: 14px 8px 8px 8px;
+    font-weight: 600;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 2px 10px;
+    color: {primary};
+    background-color: {surface};
+    border-radius: 4px;
+    font-weight: 700;
+}}
+/* ── Buttons ── */
+QPushButton {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    color: {btn_text};
+    border: 1px solid {border};
+    border-radius: 3px;
+    padding: 4px 14px;
+    min-height: 24px;
+}}
+QPushButton:hover {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {hover}, stop:1 {btn_hover});
+    border-color: {primary};
+}}
+QPushButton:pressed {{
+    background-color: {btn_pressed};
+    border-style: inset;
+}}
+QPushButton:disabled {{
+    background-color: {bg};
+    color: {text_secondary};
+    border-color: {border};
+}}
+QPushButton[cssClass="primary"] {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {primary}, stop:1 {primary_hover});
+    color: {primary_text};
+    border: 1px solid {primary_hover};
+    border-radius: 3px;
+    font-weight: 700;
+}}
+QPushButton[cssClass="primary"]:hover {{
+    background-color: {primary_hover};
+}}
+/* ── Inputs ── */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
+    background-color: {input_bg};
+    color: {text};
+    border: 1px solid {border};
+    border-radius: 3px;
+    padding: 3px 6px;
+    min-height: 22px;
+}}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+    border: 2px solid {primary};
+    padding: 2px 5px;
+}}
+QComboBox::drop-down {{ border: none; padding-right: 6px; }}
+QComboBox::down-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {text_secondary};
+    margin-right: 6px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {surface};
+    border: 1px solid {border};
+    border-radius: 3px;
+    selection-background-color: {primary};
+    selection-color: {primary_text};
+    outline: 0;
+    padding: 2px;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    border: none;
+    border-left: 1px solid {border};
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    border-top-right-radius: 3px;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border: none;
+    border-left: 1px solid {border};
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    border-bottom-right-radius: 3px;
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background-color: {hover};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid {text_secondary};
+    width: 0; height: 0;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {text_secondary};
+    width: 0; height: 0;
+}}
+/* ── Lists / Trees ── */
+QListWidget, QTreeWidget, QListView, QTreeView {{
+    background-color: {input_bg};
+    border: 1px solid {border};
+    border-radius: 3px;
+    padding: 2px;
+    outline: 0;
+}}
+QListWidget::item, QTreeWidget::item, QListView::item, QTreeView::item {{
+    padding: 3px 4px;
+    border-radius: 2px;
+}}
+QListWidget::item:selected, QTreeWidget::item:selected,
+QListView::item:selected, QTreeView::item:selected {{
+    background-color: {primary};
+    color: {primary_text};
+}}
+QListWidget::item:hover:!selected, QTreeWidget::item:hover:!selected,
+QListView::item:hover:!selected, QTreeView::item:hover:!selected {{
+    background-color: {hover};
+}}
+QHeaderView::section {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {btn_hover}, stop:1 {btn_bg});
+    color: {text};
+    border: 1px solid {border};
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+}}
+/* ── Splitter ── */
+QSplitter {{ background-color: transparent; }}
+QSplitter::handle {{ background-color: {border}; }}
+QSplitter::handle:horizontal {{ width: 4px; }}
+QSplitter::handle:vertical {{ height: 4px; }}
+QSplitter::handle:hover {{ background-color: {primary}; }}
+/* ── Progress ── */
+QProgressBar {{
+    background-color: {input_bg};
+    border: 1px solid {border};
+    border-radius: 3px;
+    text-align: center;
+    color: {text};
+    min-height: 18px;
+}}
+QProgressBar::chunk {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {primary}, stop:1 {primary_hover});
+    border-radius: 3px;
+}}
+/* ── Checkbox ── */
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {border};
+    border-radius: 2px;
+    background-color: {input_bg};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {primary};
+}}
+QCheckBox::indicator:checked {{
+    background-color: {primary};
+    border-color: {primary};
+}}
+QCheckBox::indicator:checked:hover {{
+    background-color: {primary_hover};
+    border-color: {primary_hover};
+}}
+QCheckBox::indicator:disabled {{
+    background-color: {bg};
+    border-color: {border};
+}}
+QCheckBox::indicator:checked:disabled {{
+    background-color: {text_secondary};
+    border-color: {text_secondary};
+}}
+QGroupBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {border};
+    border-radius: 2px;
+    background-color: {input_bg};
+}}
+QGroupBox::indicator:hover {{
+    border-color: {primary};
+}}
+QGroupBox::indicator:checked {{
+    background-color: {primary};
+    border-color: {primary};
+}}
+QGroupBox::indicator:checked:hover {{
+    background-color: {primary_hover};
+    border-color: {primary_hover};
+}}
+QGroupBox QCheckBox {{
+    background-color: {surface};
+}}
+/* ── Text Edit ── */
+QTextEdit {{
+    background-color: {input_bg};
+    color: {text};
+    border: 1px solid {border};
+    border-radius: 3px;
+    padding: 4px;
+}}
+/* ── Menus ── */
+QMenuBar {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {surface}, stop:1 {bg});
+    color: {text};
+    border-bottom: 1px solid {border};
+    padding: 2px 0px;
+}}
+QMenuBar::item {{
+    padding: 4px 10px;
+    border-radius: 3px;
+    background-color: transparent;
+}}
+QMenuBar::item:selected {{
+    background-color: {primary};
+    color: {primary_text};
+}}
+QMenu {{
+    background-color: {surface};
+    color: {text};
+    border: 1px solid {border};
+    border-radius: 6px;
+    padding: 4px 4px 4px 24px;
+}}
+QMenu::icon {{
+    padding-left: 4px;
+}}
+QMenu::item {{
+    padding: 5px 28px 5px 4px;
+    border-radius: 3px;
+}}
+QMenu::item:selected {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {primary}, stop:1 {primary_hover});
+    color: {primary_text};
+}}
+QMenu::item:disabled {{
+    color: {text_secondary};
+}}
+QMenu::separator {{
+    height: 1px;
+    background-color: {border};
+    margin: 4px 8px;
+}}
+/* ── Status Bar ── */
+QStatusBar {{
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 {bg}, stop:1 {surface});
+    color: {text_secondary};
+    border-top: 1px solid {border};
+    padding: 2px 8px;
+}}
+QFrame[cssClass="card"] {{
+    background-color: {surface};
+    border: 1px solid {border};
+    border-radius: 6px;
+    padding: 8px;
+}}
+QToolTip {{
+    background-color: #FFFFE1;
+    color: #000000;
+    border: 1px solid #000000;
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+}}
+QDialog {{
+    background-color: {bg};
+    color: {text};
+}}
+"""
+
+_MACOS_QSS = """
+/* ── Base ── */
+QMainWindow {{
+    background-color: {bg};
+}}
+QWidget {{
+    background-color: {bg};
+    color: {text};
+}}
+/* ── Tabs ── */
+QTabWidget::pane {{
+    border: none;
+    background-color: {surface};
+    border-radius: 8px;
+    padding: 4px;
+}}
+QTabBar::tab {{
+    background-color: transparent;
+    color: {text_secondary};
+    border: none;
+    padding: 6px 16px;
+    margin-right: 2px;
+    border-radius: 6px;
+    font-size: 13px;
+}}
+QTabBar::tab:selected {{
+    background-color: rgba({primary_rgb}, 0.12);
+    color: {text};
+    font-weight: 600;
+}}
+QTabBar::tab:hover:!selected {{
+    background-color: rgba({hover_rgb}, 0.5);
+}}
+QTabBar::tear {{ width: 0; border: none; }}
+/* ── Group Boxes ── */
+QGroupBox {{
+    background-color: rgba({surface_rgb}, 0.7);
+    border: 1px solid rgba({border_rgb}, 0.35);
+    border-radius: 10px;
+    margin-top: 12px;
+    padding: 14px 10px 10px 10px;
+    font-weight: 600;
+    font-size: 12px;
+}}
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 2px 10px;
+    color: {text_secondary};
+    background-color: transparent;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}}
+/* ── Buttons ── */
+QPushButton {{
+    background-color: rgba({btn_bg_rgb}, 0.6);
+    color: {btn_text};
+    border: 1px solid rgba({border_rgb}, 0.3);
+    border-radius: 6px;
+    padding: 4px 14px;
+    min-height: 24px;
+}}
+QPushButton:hover {{
+    background-color: rgba({btn_bg_rgb}, 0.8);
+    border-color: rgba({border_rgb}, 0.5);
+}}
+QPushButton:pressed {{
+    background-color: rgba({btn_bg_rgb}, 0.45);
+}}
+QPushButton:disabled {{
+    background-color: rgba({border_rgb}, 0.15);
+    color: {text_secondary};
+    border-color: rgba({border_rgb}, 0.15);
+}}
+QPushButton[cssClass="primary"] {{
+    background-color: {primary};
+    color: {primary_text};
+    border: none;
+    border-radius: 6px;
+    padding: 5px 18px;
+    font-weight: 600;
+}}
+QPushButton[cssClass="primary"]:hover {{
+    background-color: {primary_hover};
+}}
+/* ── Inputs ── */
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
+    background-color: rgba({input_bg_rgb}, 0.55);
+    color: {text};
+    border: 1px solid rgba({border_rgb}, 0.3);
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 22px;
+}}
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{
+    border: 2px solid rgba({primary_rgb}, 0.6);
+    padding: 3px 7px;
+}}
+QComboBox::drop-down {{ border: none; padding-right: 6px; }}
+QComboBox::down-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {text_secondary};
+    margin-right: 6px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: rgba({surface_rgb}, 0.95);
+    border: 1px solid rgba({border_rgb}, 0.25);
+    border-radius: 8px;
+    selection-background-color: {primary};
+    selection-color: {primary_text};
+    outline: 0;
+    padding: 4px;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 18px;
+    border: none;
+    border-left: 1px solid rgba({border_rgb}, 0.2);
+    background-color: rgba({btn_bg_rgb}, 0.3);
+    border-top-right-radius: 6px;
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border: none;
+    border-left: 1px solid rgba({border_rgb}, 0.2);
+    background-color: rgba({btn_bg_rgb}, 0.3);
+    border-bottom-right-radius: 6px;
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background-color: rgba({primary_rgb}, 0.08);
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid {text_secondary};
+    width: 0; height: 0;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {text_secondary};
+    width: 0; height: 0;
+}}
+/* ── Lists / Trees ── */
+QListWidget, QTreeWidget, QListView, QTreeView {{
+    background-color: rgba({input_bg_rgb}, 0.4);
+    border: 1px solid rgba({border_rgb}, 0.2);
+    border-radius: 8px;
+    padding: 4px;
+    outline: 0;
+}}
+QListWidget::item, QTreeWidget::item, QListView::item, QTreeView::item {{
+    padding: 3px 6px;
+    border-radius: 5px;
+}}
+QListWidget::item:selected, QTreeWidget::item:selected,
+QListView::item:selected, QTreeView::item:selected {{
+    background-color: {primary};
+    color: {primary_text};
+}}
+QListWidget::item:hover:!selected, QTreeWidget::item:hover:!selected,
+QListView::item:hover:!selected, QTreeView::item:hover:!selected {{
+    background-color: rgba({primary_rgb}, 0.06);
+}}
+QHeaderView::section {{
+    background-color: transparent;
+    color: {text_secondary};
+    border: none;
+    border-bottom: 1px solid rgba({border_rgb}, 0.3);
+    padding: 4px 8px;
+    font-weight: 600;
+    font-size: 11px;
+    text-align: left;
+    text-transform: uppercase;
+}}
+/* ── Splitter ── */
+QSplitter {{ background-color: transparent; }}
+QSplitter::handle {{ background-color: transparent; }}
+QSplitter::handle:horizontal {{ width: 4px; }}
+QSplitter::handle:vertical {{ height: 4px; }}
+QSplitter::handle:hover {{ background-color: rgba({primary_rgb}, 0.15); }}
+/* ── Progress ── */
+QProgressBar {{
+    background-color: rgba({input_bg_rgb}, 0.4);
+    border: none;
+    border-radius: 4px;
+    text-align: center;
+    color: {text};
+    min-height: 6px;
+    max-height: 6px;
+}}
+QProgressBar::chunk {{
+    background-color: {primary};
+    border-radius: 4px;
+}}
+/* ── Checkbox ── */
+QCheckBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid rgba({border_rgb}, 0.5);
+    border-radius: 4px;
+    background-color: rgba({input_bg_rgb}, 0.4);
+}}
+QCheckBox::indicator:hover {{
+    border-color: {primary};
+    background-color: rgba({primary_rgb}, 0.06);
+}}
+QCheckBox::indicator:checked {{
+    background-color: {primary};
+    border-color: {primary};
+}}
+QCheckBox::indicator:checked:hover {{
+    background-color: {primary_hover};
+    border-color: {primary_hover};
+}}
+QCheckBox::indicator:disabled {{
+    border-color: rgba({border_rgb}, 0.2);
+    background-color: rgba({input_bg_rgb}, 0.15);
+}}
+QCheckBox::indicator:checked:disabled {{
+    background-color: rgba({border_rgb}, 0.3);
+    border-color: rgba({border_rgb}, 0.3);
+}}
+QGroupBox::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid rgba({border_rgb}, 0.5);
+    border-radius: 4px;
+    background-color: rgba({input_bg_rgb}, 0.4);
+}}
+QGroupBox::indicator:hover {{
+    border-color: {primary};
+    background-color: rgba({primary_rgb}, 0.06);
+}}
+QGroupBox::indicator:checked {{
+    background-color: {primary};
+    border-color: {primary};
+}}
+QGroupBox::indicator:checked:hover {{
+    background-color: {primary_hover};
+    border-color: {primary_hover};
+}}
+QGroupBox QCheckBox {{
+    background-color: transparent;
+}}
+QGroupBox QLabel {{
+    background-color: transparent;
+}}
+QGroupBox QComboBox {{
+    background-color: rgba({input_bg_rgb}, 0.5);
+}}
+QGroupBox QSpinBox, QGroupBox QDoubleSpinBox {{
+    background-color: rgba({input_bg_rgb}, 0.5);
+}}
+/* ── Text Edit ── */
+QTextEdit {{
+    background-color: rgba({input_bg_rgb}, 0.5);
+    color: {text};
+    border: 1px solid rgba({border_rgb}, 0.25);
+    border-radius: 6px;
+    padding: 4px;
+}}
+/* ── Menus ── */
+QMenuBar {{
+    background-color: rgba({surface_rgb}, 0.85);
+    color: {text};
+    border-bottom: 1px solid rgba({border_rgb}, 0.2);
+    padding: 2px 0px;
+}}
+QMenuBar::item {{
+    padding: 4px 12px;
+    border-radius: 5px;
+    background-color: transparent;
+}}
+QMenuBar::item:selected {{
+    background-color: rgba({primary_rgb}, 0.12);
+}}
+QMenu {{
+    background-color: rgba({surface_rgb}, 0.98);
+    color: {text};
+    border: 1px solid rgba({border_rgb}, 0.2);
+    border-radius: 10px;
+    padding: 6px;
+}}
+QMenu::icon {{
+    padding-left: 8px;
+}}
+QMenu::item {{
+    padding: 5px 28px 5px 12px;
+    border-radius: 5px;
+}}
+QMenu::item:selected {{
+    background-color: {primary};
+    color: {primary_text};
+}}
+QMenu::item:disabled {{
+    color: {text_secondary};
+}}
+QMenu::separator {{
+    height: 1px;
+    background-color: rgba({border_rgb}, 0.25);
+    margin: 4px 10px;
+}}
+/* ── Status Bar ── */
+QStatusBar {{
+    background-color: rgba({surface_rgb}, 0.75);
+    color: {text_secondary};
+    border-top: 1px solid rgba({border_rgb}, 0.2);
+    padding: 2px 8px;
+    font-size: 12px;
+}}
+QFrame[cssClass="card"] {{
+    background-color: rgba({surface_rgb}, 0.6);
+    border: 1px solid rgba({border_rgb}, 0.2);
+    border-radius: 10px;
+    padding: 10px;
+}}
+QToolTip {{
+    background-color: rgba({surface_rgb}, 0.95);
+    color: {text};
+    border: 1px solid rgba({border_rgb}, 0.2);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+}}
+QDialog {{
+    background-color: {bg};
+    color: {text};
+}}
+"""
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Theme Token Dictionaries — 9 variants
@@ -1936,12 +3011,216 @@ THEME_TOKENS: dict[str, dict[str, str]] = {
         "success": "#6CCB5F",
         "warning": "#F7630C",
     },
+    # ── Win95 ──
+    "win95_light": {
+        "bg": "#C0C0C0",
+        "surface": "#C0C0C0",
+        "border": "#808080",
+        "text": "#000000",
+        "text_secondary": "#404040",
+        "primary": "#000080",
+        "primary_hover": "#000066",
+        "primary_text": "#FFFFFF",
+        "accent": "#000080",
+        "btn_bg": "#C0C0C0",
+        "btn_text": "#000000",
+        "btn_hover": "#D4D0C8",
+        "btn_pressed": "#A0A0A0",
+        "input_bg": "#FFFFFF",
+        "hover": "#D4D0C8",
+        "selection": "#000080",
+        "selection_text": "#FFFFFF",
+        "error": "#FF0000",
+        "success": "#008000",
+        "warning": "#808000",
+    },
+    "win95_dark": {
+        "bg": "#2C2C2C",
+        "surface": "#383838",
+        "border": "#606060",
+        "text": "#C0C0C0",
+        "text_secondary": "#808080",
+        "primary": "#6060C0",
+        "primary_hover": "#5050A0",
+        "primary_text": "#FFFFFF",
+        "accent": "#6060C0",
+        "btn_bg": "#404040",
+        "btn_text": "#C0C0C0",
+        "btn_hover": "#4A4A4A",
+        "btn_pressed": "#303030",
+        "input_bg": "#1E1E1E",
+        "hover": "#4A4A4A",
+        "selection": "#6060C0",
+        "selection_text": "#FFFFFF",
+        "error": "#FF6060",
+        "success": "#60C060",
+        "warning": "#C0C060",
+    },
+    "win95_amoled": {
+        "bg": "#000000",
+        "surface": "#0D0D0D",
+        "border": "#404040",
+        "text": "#D0D0D0",
+        "text_secondary": "#707070",
+        "primary": "#6060C0",
+        "primary_hover": "#5050A0",
+        "primary_text": "#FFFFFF",
+        "accent": "#6060C0",
+        "btn_bg": "#1A1A1A",
+        "btn_text": "#D0D0D0",
+        "btn_hover": "#252525",
+        "btn_pressed": "#151515",
+        "input_bg": "#0A0A0A",
+        "hover": "#1A1A1A",
+        "selection": "#6060C0",
+        "selection_text": "#FFFFFF",
+        "error": "#FF6060",
+        "success": "#60C060",
+        "warning": "#C0C060",
+    },
+    # ── WinXP ──
+    "winxp_light": {
+        "bg": "#ECE9D8",
+        "surface": "#F5F3E9",
+        "border": "#ACA899",
+        "text": "#000000",
+        "text_secondary": "#545454",
+        "primary": "#316AC5",
+        "primary_hover": "#1C5EB3",
+        "primary_text": "#FFFFFF",
+        "accent": "#003C74",
+        "btn_bg": "#EBE8D7",
+        "btn_text": "#000000",
+        "btn_hover": "#F5F3E9",
+        "btn_pressed": "#D4D0C8",
+        "input_bg": "#FFFFFF",
+        "hover": "#F0EDE1",
+        "selection": "#316AC5",
+        "selection_text": "#FFFFFF",
+        "error": "#CC0000",
+        "success": "#008040",
+        "warning": "#CC8800",
+    },
+    "winxp_dark": {
+        "bg": "#1E2430",
+        "surface": "#263040",
+        "border": "#4A5568",
+        "text": "#D4DDE8",
+        "text_secondary": "#8AA0B8",
+        "primary": "#5B9BD5",
+        "primary_hover": "#4A88C2",
+        "primary_text": "#1E2430",
+        "accent": "#A5C8E8",
+        "btn_bg": "#2D3A4C",
+        "btn_text": "#D4DDE8",
+        "btn_hover": "#3A4A5E",
+        "btn_pressed": "#1E2830",
+        "input_bg": "#1A2030",
+        "hover": "#303D50",
+        "selection": "#5B9BD5",
+        "selection_text": "#FFFFFF",
+        "error": "#F48771",
+        "success": "#89D185",
+        "warning": "#CCA700",
+    },
+    "winxp_amoled": {
+        "bg": "#000000",
+        "surface": "#0A0E14",
+        "border": "#2A3444",
+        "text": "#DDEAF5",
+        "text_secondary": "#6888A8",
+        "primary": "#5B9BD5",
+        "primary_hover": "#4A88C2",
+        "primary_text": "#000000",
+        "accent": "#A5C8E8",
+        "btn_bg": "#101820",
+        "btn_text": "#DDEAF5",
+        "btn_hover": "#1A2530",
+        "btn_pressed": "#0A1018",
+        "input_bg": "#060A10",
+        "hover": "#101820",
+        "selection": "#5B9BD5",
+        "selection_text": "#FFFFFF",
+        "error": "#F48771",
+        "success": "#89D185",
+        "warning": "#CCA700",
+    },
+    # ── macOS ──
+    "macos_light": {
+        "bg": "#F5F5F5",
+        "surface": "#FFFFFF",
+        "border": "#D5D5D5",
+        "text": "#1D1D1F",
+        "text_secondary": "#6E6E73",
+        "primary": "#007AFF",
+        "primary_hover": "#0066DD",
+        "primary_text": "#FFFFFF",
+        "accent": "#0055CC",
+        "btn_bg": "#FAFAFA",
+        "btn_text": "#1D1D1F",
+        "btn_hover": "#F0F0F0",
+        "btn_pressed": "#E0E0E0",
+        "input_bg": "#FFFFFF",
+        "hover": "#F0F0F0",
+        "selection": "#007AFF",
+        "selection_text": "#FFFFFF",
+        "error": "#FF3B30",
+        "success": "#34C759",
+        "warning": "#FF9500",
+    },
+    "macos_dark": {
+        "bg": "#1E1E1E",
+        "surface": "#2D2D2D",
+        "border": "#3D3D3D",
+        "text": "#F5F5F7",
+        "text_secondary": "#98989D",
+        "primary": "#0A84FF",
+        "primary_hover": "#0070E0",
+        "primary_text": "#FFFFFF",
+        "accent": "#64D2FF",
+        "btn_bg": "#333333",
+        "btn_text": "#F5F5F7",
+        "btn_hover": "#3D3D3D",
+        "btn_pressed": "#4A4A4A",
+        "input_bg": "#1C1C1E",
+        "hover": "#363636",
+        "selection": "#0A84FF",
+        "selection_text": "#FFFFFF",
+        "error": "#FF453A",
+        "success": "#30D158",
+        "warning": "#FF9F0A",
+    },
+    "macos_amoled": {
+        "bg": "#000000",
+        "surface": "#0D0D0D",
+        "border": "#2A2A2A",
+        "text": "#F5F5F7",
+        "text_secondary": "#8E8E93",
+        "primary": "#0A84FF",
+        "primary_hover": "#0070E0",
+        "primary_text": "#FFFFFF",
+        "accent": "#64D2FF",
+        "btn_bg": "#1A1A1A",
+        "btn_text": "#F5F5F7",
+        "btn_hover": "#252525",
+        "btn_pressed": "#333333",
+        "input_bg": "#0A0A0A",
+        "hover": "#1A1A1A",
+        "selection": "#0A84FF",
+        "selection_text": "#FFFFFF",
+        "error": "#FF453A",
+        "success": "#30D158",
+        "warning": "#FF9F0A",
+    },
 }
 
 _FAMILY_QSS = {
     "clean": _CLEAN_QSS,
     "material": _MATERIAL_QSS,
     "fluent": _FLUENT_QSS,
+    "win95": _WIN95_QSS,
+    "winxp": _WINXP_QSS,
+    "macos": _MACOS_QSS,
 }
 
 
@@ -2012,7 +3291,8 @@ def apply_theme(
     Args:
         app: The running QApplication instance.
         window: The main window (used for icon refresh).
-        family: Theme family — 'clean', 'material', or 'fluent'.
+        family: Theme family — 'clean', 'material', 'fluent', 'win95',
+            'winxp', or 'macos'.
         variant: Theme variant — 'light', 'dark', or 'amoled'.
         accent_key: Accent colour preset name from :data:`ACCENT_PRESETS`.
         font_override: Font family name; empty string uses the theme default.
@@ -2025,9 +3305,11 @@ def apply_theme(
     app.setPalette(app.style().standardPalette())
 
     # 2. Font
+    _load_bundled_fonts()
     fname = font_override or THEME_FONTS[family][0]
     font = QFont(fname)
-    font.setPixelSize(14 if family == "material" else 13)
+    _FAMILY_FONT_PX = {"material": 14, "win95": 11}
+    font.setPixelSize(_FAMILY_FONT_PX.get(family, 13))
     app.setFont(font)
 
     # 3. Determine icon colour (needed for arrow generation)
@@ -2109,7 +3391,9 @@ def apply_theme(
         palette = _build_palette(tokens)
         app.setPalette(palette)
         checkbox_qss = (
-            _build_fluent_checkbox_qss(arrow_dir) if family == "fluent" else ""
+            _build_checkbox_checkmark_qss(arrow_dir)
+            if family in ("fluent", "macos", "win95", "winxp")
+            else ""
         )
         qss = _build_custom_qss(family, tokens) + arrow_qss + checkbox_qss
         app.setStyleSheet(qss)

@@ -24,6 +24,13 @@ This project is distributed under the GNU Affero General Public License v3.0 or 
 | etcpak | 0.9.15 | MIT | GPU texture compression (BC1/BC3/BC7, ETC1/ETC2). |
 | tqdm | 4.67.1 | MPL-2.0 | Progress bars. |
 
+## Bundled Assets
+
+| Asset | Source | License | Notes |
+| --- | --- | --- | --- |
+| MS Sans Serif font (Fontstruct recreation) | [fontstruct.com/1384746](https://fontstruct.com/fontstructions/show/1384746) | CC-BY-SA-3.0 | Pixel font by "lou". Used for Win95 theme. |
+| Win95/XP checkmark icon shape | [XP.css](https://github.com/botoxparty/XP.css) | MIT | Copyright 2020 Adam Hammad, Jordan Scales. |
+
 ## Licenses
 Links to licenses:
 
