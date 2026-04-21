@@ -54,6 +54,7 @@ class AnimationTreeWidget(QTreeWidget):
         self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self.header().resizeSection(1, 60)
 
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
 
@@ -528,7 +529,12 @@ class AnimationTreeWidget(QTreeWidget):
     # ------------------------------------------------------------------
 
     def show_context_menu(self, position):
-        """Display a context menu for the item at the given position."""
+        """Display a context menu for the item at the given position.
+
+        When multiple items are selected, the menu offers a single batch
+        delete action covering every selected item (after a single
+        confirmation prompt).
+        """
         item = self.itemAt(position)
         if not item:
             menu = QMenu(self)
@@ -539,6 +545,16 @@ class AnimationTreeWidget(QTreeWidget):
             add_anim_action.triggered.connect(lambda: self.add_animation_group())
             menu.addAction(add_anim_action)
             menu.exec(self.mapToGlobal(position))
+            return
+
+        # Use the item under the cursor as part of the selection so that a
+        # right-click on an unselected item still operates on that item.
+        selected_items = list(self.selectedItems())
+        if item not in selected_items:
+            selected_items = [item]
+
+        if len(selected_items) > 1:
+            self._show_multi_selection_menu(selected_items, position)
             return
 
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -579,6 +595,142 @@ class AnimationTreeWidget(QTreeWidget):
             menu.addAction(remove_action)
             menu.exec(self.mapToGlobal(position))
 
+    def _show_multi_selection_menu(self, items, position):
+        """Show a context menu tailored to a multi-item selection.
+
+        Args:
+            items: The list of currently selected QTreeWidgetItems.
+            position: The local position the menu should be anchored at.
+        """
+        # Group items by their tree role.
+        jobs: list = []
+        animations: list = []
+        frames: list = []
+        for entry in items:
+            data = entry.data(0, Qt.ItemDataRole.UserRole)
+            if not data:
+                continue
+            kind = data.get("type")
+            if kind == "job":
+                jobs.append(entry)
+            elif kind == "animation_group":
+                animations.append(entry)
+            elif kind == "frame":
+                frames.append(entry)
+
+        total = len(jobs) + len(animations) + len(frames)
+        if total == 0:
+            return
+
+        menu = QMenu(self)
+
+        if jobs and not animations and not frames:
+            label = self.tr("Delete {0} selected spritesheets").format(len(jobs))
+        elif animations and not jobs and not frames:
+            label = self.tr("Delete {0} selected animations").format(len(animations))
+        elif frames and not jobs and not animations:
+            label = self.tr("Remove {0} selected frames").format(len(frames))
+        else:
+            label = self.tr("Delete {0} selected items").format(total)
+
+        delete_action = QAction(label, self)
+        delete_action.triggered.connect(
+            lambda: self.delete_items(jobs, animations, frames)
+        )
+        menu.addAction(delete_action)
+        menu.exec(self.mapToGlobal(position))
+
+    def delete_items(self, jobs, animations, frames):
+        """Delete the supplied jobs, animations, and frames in bulk.
+
+        A single confirmation prompt covers the whole batch; per-item
+        confirmations are suppressed. Frames whose parent animation is
+        also being deleted are skipped (the parent removal is enough).
+        Likewise animations under a deleted job are skipped.
+
+        Args:
+            jobs: Job items to delete.
+            animations: Animation group items to delete.
+            frames: Frame items to delete.
+        """
+        total = len(jobs) + len(animations) + len(frames)
+        if total <= 0:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            self.tr("Delete selection"),
+            self.tr("Are you sure you want to delete {0} selected item(s)?").format(
+                total
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        job_set = set(id(j) for j in jobs)
+        anim_set = set(id(a) for a in animations)
+
+        # Drop animations whose parent job is also being deleted.
+        animations = [a for a in animations if id(a.parent()) not in job_set]
+        # Drop frames whose parent animation or grandparent job is also being deleted.
+        frames = [
+            f
+            for f in frames
+            if id(f.parent()) not in anim_set
+            and id(f.parent().parent() if f.parent() else None) not in job_set
+        ]
+
+        # Track parent counts/numbering to refresh after the batch.
+        affected_groups: set = set()
+        affected_jobs: set = set()
+
+        # Remove frames first so the surviving group references stay valid.
+        for frame_item in frames:
+            parent = frame_item.parent()
+            if not parent:
+                continue
+            parent.removeChild(frame_item)
+            affected_groups.add(id(parent))
+            grandparent = parent.parent()
+            if grandparent:
+                affected_jobs.add(id(grandparent))
+
+        # Remove animation groups.
+        removed_anim_names: list = []
+        for group_item in animations:
+            parent = group_item.parent()
+            if not parent:
+                continue
+            anim_name = group_item.text(0)
+            parent.removeChild(group_item)
+            removed_anim_names.append(anim_name)
+            affected_jobs.add(id(parent))
+
+        # Remove jobs last; they cascade their children for free.
+        removed_job_names: list = []
+        for job_item in jobs:
+            parent = job_item.parent() or self.invisibleRootItem()
+            job_name = job_item.text(0)
+            parent.removeChild(job_item)
+            removed_job_names.append(job_name)
+
+        # Refresh counts/numbering on surviving groups and jobs.
+        for job_item in self._iter_jobs():
+            if id(job_item) in affected_jobs:
+                self._update_counts(job_item)
+            for i in range(job_item.childCount()):
+                group = job_item.child(i)
+                if id(group) in affected_groups:
+                    self.update_frame_numbering(group)
+
+        for name in removed_anim_names:
+            self.animation_removed.emit(name)
+        for name in removed_job_names:
+            self.job_removed.emit(name)
+        if frames or animations or jobs:
+            self.frame_order_changed.emit()
+
     # ------------------------------------------------------------------
     # Inline editing / drag-drop
     # ------------------------------------------------------------------
@@ -606,3 +758,28 @@ class AnimationTreeWidget(QTreeWidget):
                     self.update_frame_numbering(group)
             self._update_counts(job_item)
         self.frame_order_changed.emit()
+
+    def keyPressEvent(self, event):
+        """Allow the Delete key to remove the current selection in bulk."""
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            selected = list(self.selectedItems())
+            if selected:
+                jobs: list = []
+                animations: list = []
+                frames: list = []
+                for entry in selected:
+                    data = entry.data(0, Qt.ItemDataRole.UserRole)
+                    if not data:
+                        continue
+                    kind = data.get("type")
+                    if kind == "job":
+                        jobs.append(entry)
+                    elif kind == "animation_group":
+                        animations.append(entry)
+                    elif kind == "frame":
+                        frames.append(entry)
+                if jobs or animations or frames:
+                    self.delete_items(jobs, animations, frames)
+                    event.accept()
+                    return
+        super().keyPressEvent(event)

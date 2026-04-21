@@ -40,6 +40,9 @@ from PySide6.QtGui import QAction
 
 from gui.base_tab_widget import BaseTabWidget
 from utils.translation_manager import tr as translate
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 from utils.combo_options import (
     ANIMATION_FORMAT_OPTIONS,
     CROPPING_METHOD_OPTIONS,
@@ -622,7 +625,7 @@ class ExtractTabWidget(BaseTabWidget):
                     data_files["paper2dsprites"], smart
                 )
         except Exception as e:
-            print(f"Error parsing animations for {sheet_name}: {e}")
+            logger.exception("Error parsing animations for %s: %s", sheet_name, e)
 
         # Append editor composites
         if self.parent_app and hasattr(self.parent_app, "editor_composite_animations"):
@@ -1614,8 +1617,10 @@ class ExtractTabWidget(BaseTabWidget):
                         label_name, "timeline_label", label_name, frame_count
                     )
         except Exception as exc:
-            print(
-                f"Error parsing spritemap animation metadata {animation_json_path}: {exc}"
+            logger.exception(
+                "Error parsing spritemap animation metadata %s: %s",
+                animation_json_path,
+                exc,
             )
         return symbol_map
 
@@ -1737,8 +1742,7 @@ class ExtractTabWidget(BaseTabWidget):
         self.listbox_data.clear()
 
         if spritesheet_name not in self.parent_app.data_dict:
-            # If no data files found, try to use the unknown parser
-            self._populate_using_unknown_parser()
+            # No metadata — skip heavy image analysis here; it runs at extraction time.
             self._append_editor_composites_to_list(spritesheet_name)
             self._refresh_tree_if_visible()
             return
@@ -1759,7 +1763,7 @@ class ExtractTabWidget(BaseTabWidget):
                         xml_parser.get_data(smart_grouping=smart)
                     )
                 except Exception as e:
-                    print(f"Error parsing XML: {e}")
+                    logger.exception("Error parsing XML: %s", e)
 
             elif "txt" in data_files:
                 try:
@@ -1774,7 +1778,7 @@ class ExtractTabWidget(BaseTabWidget):
                         txt_parser.get_data(smart_grouping=smart)
                     )
                 except Exception as e:
-                    print(f"Error parsing TXT: {e}")
+                    logger.exception("Error parsing TXT: %s", e)
 
             elif "spritemap" in data_files:
                 spritemap_info = data_files.get("spritemap", {})
@@ -1802,7 +1806,7 @@ class ExtractTabWidget(BaseTabWidget):
                                 )
                             )
                     except Exception as e:
-                        print(f"Error parsing spritemap animations: {e}")
+                        logger.exception("Error parsing spritemap animations: %s", e)
 
             elif "json" in data_files:
                 self._parse_with_registry(data_files["json"])
@@ -1824,11 +1828,6 @@ class ExtractTabWidget(BaseTabWidget):
 
             elif "paper2dsprites" in data_files:
                 self._parse_with_registry(data_files["paper2dsprites"])
-
-            else:
-                self._populate_unknown_parser_fallback()
-        else:
-            self._populate_unknown_parser_fallback()
 
         self._append_editor_composites_to_list(spritesheet_name)
         self._refresh_tree_if_visible()
@@ -1874,41 +1873,44 @@ class ExtractTabWidget(BaseTabWidget):
                     parser.get_data(smart_grouping=self._is_smart_grouping_enabled())
                 )
             else:
-                print(f"No parser found for: {metadata_path}")
-                self._populate_unknown_parser_fallback()
+                logger.warning("No parser found for: %s", metadata_path)
         except Exception as e:
-            print(f"Error parsing {metadata_path}: {e}")
-            self._populate_unknown_parser_fallback()
+            logger.exception("Error parsing %s: %s", metadata_path, e)
 
     def _populate_unknown_parser_fallback(self):
         """Use the generic parser when nothing else recognized the source."""
         self._populate_using_unknown_parser()
 
     def _populate_using_unknown_parser(self):
-        """Load animation names via the generic unknown-format parser."""
+        """Show a placeholder for unknown spritesheets without scanning the image.
+
+        Running connected-component sprite detection here would freeze the GUI
+        for large sheets (the analysis can take several seconds). The actual
+        sprite detection happens in the extraction worker thread once the user
+        clicks Start, so listing the regions here would just duplicate work
+        and block the UI for a result the user is about to discard anyway.
+        """
+        if not self.listbox_data:
+            return
 
         try:
-            from parsers.unknown_parser import UnknownParser
-
-            current_item = self.listbox_png.currentItem()
-            if not current_item:
-                return
-
-            spritesheet_path = current_item.data(Qt.ItemDataRole.UserRole)
-            if not spritesheet_path:
-                return
-
-            unknown_parser = UnknownParser(
-                directory=str(Path(spritesheet_path).parent),
-                image_filename=Path(spritesheet_path).name,
-            )
-            self._populate_animation_names(
-                unknown_parser.get_data(
-                    smart_grouping=self._is_smart_grouping_enabled()
+            placeholder = self.listbox_data.add_item(
+                self.tr(
+                    "(Unknown spritesheet — sprites are auto-detected during extraction)"
                 )
             )
+            # Make the placeholder informational only: not selectable, not
+            # interactive, so the user can't trigger preview/override actions
+            # on a non-existent animation entry.
+            placeholder.setFlags(
+                placeholder.flags()
+                & ~Qt.ItemFlag.ItemIsSelectable
+                & ~Qt.ItemFlag.ItemIsEnabled
+            )
         except Exception as exc:
-            print(f"Error using unknown parser: {exc}")
+            logger.exception(
+                "[ExtractTab] Failed to add unknown-sheet placeholder: %s", exc
+            )
 
     def _populate_animation_names(self, names):
         """Add animation names to the animation listbox.
@@ -2102,10 +2104,11 @@ class ExtractTabWidget(BaseTabWidget):
         if item is None:
             return
 
-        self.listbox_png.setCurrentItem(item)
-
+        # Preserve any existing multi-selection. Only switch to the
+        # right-clicked item when it is not already part of the selection.
         selected_items = self.listbox_png.selectedItems()
         if not selected_items or item not in selected_items:
+            self.listbox_png.setCurrentItem(item)
             selected_items = [item]
 
         menu = QMenu(self)
@@ -2151,10 +2154,11 @@ class ExtractTabWidget(BaseTabWidget):
         if item is None:
             return
 
-        self.listbox_data.setCurrentItem(item)
-
+        # Preserve any existing multi-selection. Only switch to the
+        # right-clicked item when it is not already part of the selection.
         selected_items = self.listbox_data.selectedItems()
         if not selected_items or item not in selected_items:
+            self.listbox_data.setCurrentItem(item)
             selected_items = [item]
 
         menu = QMenu(self)
@@ -2182,7 +2186,9 @@ class ExtractTabWidget(BaseTabWidget):
         )
         menu.addAction(editor_action)
 
-        # Preview/settings make sense only for single non-composite selections
+        # Preview makes sense only for single non-composite selections.
+        # Override settings is available for both single and multi-select
+        # (multi-select applies the same settings to every selected item).
         if len(selected_items) == 1:
             item_data = item.data(Qt.ItemDataRole.UserRole)
             if not (
@@ -2197,6 +2203,22 @@ class ExtractTabWidget(BaseTabWidget):
 
                 menu.addSeparator()
 
+                settings_action = QAction(_trc(MenuActions.OVERRIDE_SETTINGS), self)
+                settings_action.triggered.connect(self.override_animation_settings)
+                menu.addAction(settings_action)
+        else:
+            # Multi-select: skip composites since they don't carry settings.
+            non_composite = [
+                sel
+                for sel in selected_items
+                if not (
+                    isinstance(sel.data(Qt.ItemDataRole.UserRole), dict)
+                    and sel.data(Qt.ItemDataRole.UserRole).get("type")
+                    == "editor_composite"
+                )
+            ]
+            if non_composite:
+                menu.addSeparator()
                 settings_action = QAction(_trc(MenuActions.OVERRIDE_SETTINGS), self)
                 settings_action.triggered.connect(self.override_animation_settings)
                 menu.addAction(settings_action)
@@ -2309,12 +2331,20 @@ class ExtractTabWidget(BaseTabWidget):
             )
 
     def override_spritesheet_settings(self):
-        """Opens window to override settings for selected spritesheet."""
+        """Open the override window for the selected spritesheet(s).
+
+        When multiple spritesheets are selected, the dialog title indicates
+        how many items will receive the settings, and the callback writes
+        the same settings dict to each selected entry.
+        """
         if not self.parent_app:
             return
 
-        current_item = self.listbox_png.currentItem()
-        if not current_item:
+        selected_items = self.listbox_png.selectedItems()
+        if not selected_items:
+            current_item = self.listbox_png.currentItem()
+            selected_items = [current_item] if current_item else []
+        if not selected_items:
             QMessageBox.information(
                 self,
                 self.tr(DialogTitles.ERROR),
@@ -2322,13 +2352,17 @@ class ExtractTabWidget(BaseTabWidget):
             )
             return
 
-        spritesheet_name = current_item.text()
+        spritesheet_names = [item.text() for item in selected_items if item]
+
+        if len(spritesheet_names) == 1:
+            target_label = spritesheet_names[0]
+        else:
+            target_label = self.tr("{0} spritesheets").format(len(spritesheet_names))
 
         def store_settings(settings):
-            """Callback to store spritesheet settings."""
-            self.parent_app.settings_manager.spritesheet_settings[spritesheet_name] = (
-                settings
-            )
+            """Apply the chosen settings to every selected spritesheet."""
+            for name in spritesheet_names:
+                self.parent_app.settings_manager.spritesheet_settings[name] = settings
 
         self.update_global_settings()
 
@@ -2339,7 +2373,7 @@ class ExtractTabWidget(BaseTabWidget):
 
             dialog = OverrideSettingsWindow(
                 self.parent_app,
-                spritesheet_name,
+                target_label,
                 "spritesheet",
                 self.parent_app.settings_manager,
                 store_settings,
@@ -2567,12 +2601,30 @@ class ExtractTabWidget(BaseTabWidget):
         self.update_stats_label()
 
     def override_animation_settings(self):
-        """Opens window to override settings for selected animation."""
+        """Open the override window for the selected animation(s).
+
+        Multi-select is supported: the same settings dict is written for
+        each selected animation under the currently active spritesheet.
+        Editor composite items in the selection are skipped.
+        """
         if not self.parent_app:
             return
 
-        current_item = self.listbox_data.currentItem()
-        if not current_item:
+        selected_items = self.listbox_data.selectedItems()
+        if not selected_items:
+            current_item = self.listbox_data.currentItem()
+            selected_items = [current_item] if current_item else []
+        # Filter out editor composites (they don't have animation settings).
+        selected_items = [
+            it
+            for it in selected_items
+            if it
+            and not (
+                isinstance(it.data(Qt.ItemDataRole.UserRole), dict)
+                and it.data(Qt.ItemDataRole.UserRole).get("type") == "editor_composite"
+            )
+        ]
+        if not selected_items:
             QMessageBox.information(
                 self,
                 self.tr(DialogTitles.ERROR),
@@ -2590,16 +2642,26 @@ class ExtractTabWidget(BaseTabWidget):
             return
 
         spritesheet_name = current_spritesheet_item.text()
-        animation_name = current_item.text()
-        full_anim_name = "{spritesheet}/{animation}".format(
-            spritesheet=spritesheet_name, animation=animation_name
-        )
+        full_anim_names = [
+            "{spritesheet}/{animation}".format(
+                spritesheet=spritesheet_name, animation=item.text()
+            )
+            for item in selected_items
+        ]
+
+        if len(full_anim_names) == 1:
+            target_label = full_anim_names[0]
+        else:
+            target_label = self.tr("{0} animations in {1}").format(
+                len(full_anim_names), spritesheet_name
+            )
 
         def store_settings(settings):
-            """Callback to store animation settings."""
-            self.parent_app.settings_manager.animation_settings[full_anim_name] = (
-                settings
-            )
+            """Apply the chosen settings to every selected animation."""
+            for full_name in full_anim_names:
+                self.parent_app.settings_manager.animation_settings[full_name] = (
+                    settings
+                )
 
         self.update_global_settings()
 
@@ -2610,7 +2672,7 @@ class ExtractTabWidget(BaseTabWidget):
 
             dialog = OverrideSettingsWindow(
                 self.parent_app,
-                full_anim_name,
+                target_label,
                 "animation",
                 self.parent_app.settings_manager,
                 store_settings,
