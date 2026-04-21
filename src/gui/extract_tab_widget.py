@@ -39,6 +39,7 @@ from PySide6.QtCore import Qt, QCoreApplication
 from PySide6.QtGui import QAction
 
 from gui.base_tab_widget import BaseTabWidget
+from gui.drop_target_overlay import DropTargetOverlay
 from utils.translation_manager import tr as translate
 from utils.logger import get_logger
 
@@ -242,6 +243,13 @@ class ExtractTabWidget(BaseTabWidget):
         self._setup_ui()
         self.setup_connections()
         self.setup_default_values()
+
+        # Enable drag-and-drop of files/folders onto the tab.
+        self.setAcceptDrops(True)
+        self._drop_overlay = DropTargetOverlay(
+            self,
+            hint_text=self.tr("Drop spritesheets, metadata, or folders here"),
+        )
 
     def _init_state(self):
         """Initialize instance state before UI setup."""
@@ -1200,6 +1208,79 @@ class ExtractTabWidget(BaseTabWidget):
             self.parent_app.settings_manager.animation_settings.clear()
             self.parent_app.settings_manager.spritesheet_settings.clear()
 
+    # ------------------------------------------------------------------
+    # Drag-and-drop entry point
+    # ------------------------------------------------------------------
+
+    def dragEnterEvent(self, event):
+        """Show drop overlay when files/folders are dragged over the tab."""
+        if event.mimeData().hasUrls():
+            overlay = getattr(self, "_drop_overlay", None)
+            if overlay is not None:
+                overlay.show_overlay()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        overlay = getattr(self, "_drop_overlay", None)
+        if overlay is not None:
+            overlay.hide_overlay()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        """Append dropped files/folders to the existing spritesheet list.
+
+        Folders are scanned with the same logic as the "Select directory"
+        button. Loose files are referenced in place (no temp-folder copy).
+        Existing entries are preserved; duplicates are skipped via display
+        name lookup.
+        """
+        overlay = getattr(self, "_drop_overlay", None)
+        if overlay is not None:
+            overlay.hide_overlay()
+
+        urls = event.mimeData().urls()
+        paths = [Path(u.toLocalFile()) for u in urls if u.isLocalFile()]
+        paths = [p for p in paths if str(p)]
+        if not paths or not self.parent_app:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+
+        folders = [p for p in paths if p.is_dir()]
+        files = [p for p in paths if p.is_file()]
+
+        had_existing = self.listbox_png.count() > 0
+
+        for folder in folders:
+            self.populate_spritesheet_list(str(folder), clear=False)
+
+        if files:
+            self.populate_spritesheet_list_from_files(
+                [str(p) for p in files], temp_folder=None, clear=False
+            )
+
+        # Update the input dir label to reflect the source.
+        if folders and not files and not had_existing and len(folders) == 1:
+            self.input_dir_label.setText(str(folders[0]))
+            self.parent_app.app_config.set_last_input_directory(str(folders[0]))
+        else:
+            self.input_dir_label.setText(
+                self.tr("Mixed sources ({count} items)").format(
+                    count=self.listbox_png.count()
+                )
+            )
+
+        self._refresh_tree_if_visible()
+        self.update_stats_label()
+
     def select_output_directory(self):
         """Opens a directory selection dialog for output directory."""
         if not self.parent_app:
@@ -1268,22 +1349,27 @@ class ExtractTabWidget(BaseTabWidget):
                 copied_files, self.parent_app.manual_selection_temp_dir
             )
 
-    def populate_spritesheet_list(self, directory):
+    def populate_spritesheet_list(self, directory, clear: bool = True):
         """Populate the spritesheet listbox from a directory.
 
-        Clears existing entries, scans for spritesheet image files, and
-        registers any accompanying metadata files.
+        Scans for spritesheet image files and registers any accompanying
+        metadata files. By default the existing list is cleared first;
+        pass ``clear=False`` (e.g. from drag-and-drop) to append.
 
         Args:
             directory: Folder path to scan for spritesheets.
+            clear: When ``True`` (default) the listbox/data dict are
+                emptied before populating. When ``False`` new entries are
+                appended and duplicates are skipped.
         """
 
         if not self.parent_app:
             return
 
-        self.listbox_png.clear()
-        self.listbox_data.clear()
-        self.parent_app.data_dict.clear()
+        if clear:
+            self.listbox_png.clear()
+            self.listbox_data.clear()
+            self.parent_app.data_dict.clear()
 
         directory_path = Path(directory)
         if not directory_path.exists():
@@ -1295,6 +1381,8 @@ class ExtractTabWidget(BaseTabWidget):
 
         for image_file in sorted(image_files):
             display_name = self._format_display_name(directory_path, image_file)
+            if self.listbox_png.find_item_by_text(display_name):
+                continue
             self.listbox_png.add_item(display_name, str(image_file))
             self.find_data_files_for_spritesheet(
                 image_file,
@@ -1327,20 +1415,25 @@ class ExtractTabWidget(BaseTabWidget):
         self._refresh_tree_if_visible()
         self.update_stats_label()
 
-    def populate_spritesheet_list_from_files(self, files, temp_folder=None):
+    def populate_spritesheet_list_from_files(
+        self, files, temp_folder=None, clear: bool = True
+    ):
         """Populate the spritesheet listbox from manually selected files.
 
         Args:
             files: List of file paths selected by the user.
             temp_folder: Optional temporary folder used for manual selections.
+            clear: When ``True`` (default) the listbox/data dict are
+                emptied first. Pass ``False`` to append (drag-and-drop).
         """
 
         if not self.parent_app:
             return
 
-        self.listbox_png.clear()
-        self.listbox_data.clear()
-        self.parent_app.data_dict.clear()
+        if clear:
+            self.listbox_png.clear()
+            self.listbox_data.clear()
+            self.parent_app.data_dict.clear()
 
         image_exts = {ext.lower() for ext in self.SUPPORTED_IMAGE_EXTENSIONS}
 
@@ -1350,6 +1443,8 @@ class ExtractTabWidget(BaseTabWidget):
                 display_name = self._format_display_name(
                     Path(temp_folder) if temp_folder else None, path
                 )
+                if self.listbox_png.find_item_by_text(display_name):
+                    continue
                 self.listbox_png.add_item(display_name, str(path))
                 search_directory = Path(temp_folder) if temp_folder else path.parent
                 self.find_data_files_for_spritesheet(

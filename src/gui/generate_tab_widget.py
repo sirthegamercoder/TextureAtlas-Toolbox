@@ -19,6 +19,7 @@ from PySide6.QtCore import QSize, Qt, QThread, Signal
 
 from gui.base_tab_widget import BaseTabWidget
 from gui.job_progress_window import JobProgressWindow
+from gui.drop_target_overlay import DropTargetOverlay
 
 try:
     from PIL import Image, ImageSequence
@@ -558,6 +559,7 @@ class GenerateTabWidget(BaseTabWidget):
         self.atlas_settings = {}
         self._directory_import_worker: Optional[DirectoryImportWorker] = None
         self._directory_import_progress_window: Optional[JobProgressWindow] = None
+        self._drop_overlay: Optional[DropTargetOverlay] = None
 
         self.APP_NAME = Utilities.APP_NAME
         self.ALL_FILES_FILTER = f"{self.tr('All files')} (*.*)"
@@ -869,6 +871,13 @@ class GenerateTabWidget(BaseTabWidget):
         placeholder.setParent(None)
         layout.insertWidget(index, self.animation_tree)
 
+        # Enable drag-and-drop of folders/files onto the tab.
+        self.setAcceptDrops(True)
+        self._drop_overlay = DropTargetOverlay(
+            self,
+            hint_text=self.tr("Drop folders, atlases, or images here"),
+        )
+
         self.jpeg_quality_spin = QSpinBox()
         self.jpeg_quality_spin.setRange(1, 100)
         self.jpeg_quality_spin.setValue(95)
@@ -956,7 +965,152 @@ class GenerateTabWidget(BaseTabWidget):
             files.extend(folder.glob(f"*{ext.upper()}"))
         return files
 
-    def add_directory(self):
+    # ------------------------------------------------------------------
+    # Drag-and-drop entry point
+    # ------------------------------------------------------------------
+
+    def dragEnterEvent(self, event):
+        """Show drop overlay when files/folders are dragged over the tab."""
+        if event.mimeData().hasUrls():
+            if self._drop_overlay is not None:
+                self._drop_overlay.show_overlay()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        if self._drop_overlay is not None:
+            self._drop_overlay.hide_overlay()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        """Dispatch dropped paths to the appropriate import flow."""
+        if self._drop_overlay is not None:
+            self._drop_overlay.hide_overlay()
+        urls = event.mimeData().urls()
+        paths = [Path(u.toLocalFile()) for u in urls if u.isLocalFile()]
+        paths = [p for p in paths if str(p)]
+        if not paths:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self._handle_dropped_paths(paths)
+
+    def _handle_dropped_paths(self, paths: List[Path]) -> None:
+        """Route dropped files/folders to add_directory / add_existing_atlas / frames.
+
+        - A single folder: behaves like the "Add Folder" action.
+        - Atlas image(s) with a matching metadata file in the same folder:
+          imported as one or more existing-atlas jobs.
+        - Loose images (no matching metadata): user is prompted whether to
+          create a new spritesheet job for them; otherwise added to a new
+          animation group.
+        """
+        folders = [p for p in paths if p.is_dir()]
+        files = [p for p in paths if p.is_file()]
+
+        # Folders: import each as a directory job (sequentially via dialog).
+        for folder in folders:
+            self.add_directory(str(folder))
+
+        if not files:
+            return
+
+        image_exts = set(self.IMAGE_FORMATS.keys()) | self.ANIMATED_IMPORT_FORMATS
+        data_exts = set(self.DATA_FORMATS)
+
+        # Detect atlas+data pairs by stem within the dropped set.
+        files_by_stem: Dict[str, Dict[str, Path]] = {}
+        for f in files:
+            ext = f.suffix.lower()
+            entry = files_by_stem.setdefault(str(f.parent / f.stem), {})
+            if ext in image_exts:
+                entry["image"] = f
+            elif ext in data_exts:
+                entry["data"] = f
+
+        atlas_pairs: List[Tuple[Path, Path]] = []
+        loose_images: List[Path] = []
+        for entry in files_by_stem.values():
+            image = entry.get("image")
+            data = entry.get("data")
+            if image is None:
+                continue
+            if data is not None:
+                atlas_pairs.append((image, data))
+                continue
+            # No data file dropped — check the image's folder for a sibling
+            # metadata file with the same stem before treating as loose.
+            sibling = None
+            for ext in self.DATA_FORMATS:
+                candidate = image.parent / f"{image.stem}{ext}"
+                if candidate.exists():
+                    sibling = candidate
+                    break
+            if sibling is not None:
+                atlas_pairs.append((image, sibling))
+            else:
+                loose_images.append(image)
+
+        for image, data in atlas_pairs:
+            self.add_existing_atlas(str(image), str(data))
+
+        if not loose_images:
+            return
+
+        # Loose images: ask the user whether to create a new spritesheet job
+        # (when frames are already loaded) or just append as a new animation.
+        target_job = None
+        if self.animation_tree.get_total_frame_count() > 0:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Question)
+            msg.setWindowTitle(self.APP_NAME)
+            msg.setText(
+                self.tr(
+                    "{count} image(s) were dropped. Add them as a new spritesheet job?"
+                ).format(count=len(loose_images))
+            )
+            new_job_btn = msg.addButton(
+                self.tr("New Job"), QMessageBox.ButtonRole.AcceptRole
+            )
+            combine_btn = msg.addButton(
+                self.tr("Add to Current"), QMessageBox.ButtonRole.ActionRole
+            )
+            msg.addButton(QMessageBox.StandardButton.Cancel)
+            msg.exec()
+            clicked = msg.clickedButton()
+            if clicked is None or (clicked != new_job_btn and clicked != combine_btn):
+                return
+            if clicked == new_job_btn:
+                job_name = loose_images[0].parent.name or self.tr("Dropped Frames")
+                target_job = self.animation_tree.add_job(job_name)
+
+        animation_name = (
+            loose_images[0].parent.name if folders == [] else self.tr("Dropped Frames")
+        )
+        new_animation_item = self.animation_tree.add_animation_group(
+            animation_name, job_item=target_job
+        )
+        actual_animation_name = new_animation_item.text(0)
+        for image in loose_images:
+            file_path = str(image)
+            if not self.is_frame_already_added(file_path):
+                self.animation_tree.add_frame_to_animation(
+                    actual_animation_name, file_path, job_item=target_job
+                )
+                self.input_frames.append(file_path)
+                self._added_frame_paths.add(file_path)
+
+        self.update_frame_info()
+        self.update_generate_button_state()
+
+    def add_directory(self, directory: Optional[str] = None):
         """Add all images from a directory to the frame list.
 
         Animated images (GIF, APNG, animated WebP) found in the
@@ -967,6 +1121,10 @@ class GenerateTabWidget(BaseTabWidget):
         Directory scanning and animated image decoding run in a
         background thread (``DirectoryImportWorker``). Animation tree
         mutations happen on the GUI thread when the worker reports back.
+
+        Args:
+            directory: Folder to import. If ``None``, opens a folder
+                picker dialog.
         """
         if (
             getattr(self, "_directory_import_worker", None) is not None
@@ -979,9 +1137,10 @@ class GenerateTabWidget(BaseTabWidget):
             )
             return
 
-        directory = QFileDialog.getExistingDirectory(
-            self, self.tr(FileDialogTitles.SELECT_FRAME_DIR), ""
-        )
+        if not directory:
+            directory = QFileDialog.getExistingDirectory(
+                self, self.tr(FileDialogTitles.SELECT_FRAME_DIR), ""
+            )
         if not directory:
             return
 
@@ -1163,15 +1322,28 @@ class GenerateTabWidget(BaseTabWidget):
         self.update_frame_info()
         self.update_generate_button_state()
 
-    def add_existing_atlas(self):
-        """Add frames from an existing Sparrow/Starling atlas (image + data file)."""
+    def add_existing_atlas(
+        self,
+        atlas_file: Optional[str] = None,
+        data_file: Optional[str] = None,
+    ):
+        """Add frames from an existing Sparrow/Starling atlas (image + data file).
+
+        Args:
+            atlas_file: Path to the atlas image. If ``None``, opens a file
+                picker dialog.
+            data_file: Path to the matching metadata file. If ``None``,
+                attempts auto-discovery in the atlas folder, then falls
+                back to a file picker dialog.
+        """
         # First select the atlas image file (any supported format)
-        atlas_file, _ = QFileDialog.getOpenFileName(
-            self,
-            self.tr(FileDialogTitles.SELECT_ATLAS_IMAGE),
-            "",
-            self.get_atlas_image_file_filter(),
-        )
+        if not atlas_file:
+            atlas_file, _ = QFileDialog.getOpenFileName(
+                self,
+                self.tr(FileDialogTitles.SELECT_ATLAS_IMAGE),
+                "",
+                self.get_atlas_image_file_filter(),
+            )
 
         if not atlas_file:
             return
@@ -1180,15 +1352,14 @@ class GenerateTabWidget(BaseTabWidget):
         atlas_directory = atlas_path.parent
         atlas_name = atlas_path.stem
 
-        # Look for corresponding data file (XML, TXT, JSON)
-        data_file = None
-        possible_data_names = [f"{atlas_name}{ext}" for ext in self.DATA_FORMATS]
-
-        for data_name in possible_data_names:
-            data_path = atlas_directory / data_name
-            if data_path.exists():
-                data_file = str(data_path)
-                break
+        # Look for corresponding data file (XML, TXT, JSON) if not supplied
+        if not data_file:
+            possible_data_names = [f"{atlas_name}{ext}" for ext in self.DATA_FORMATS]
+            for data_name in possible_data_names:
+                data_path = atlas_directory / data_name
+                if data_path.exists():
+                    data_file = str(data_path)
+                    break
 
         # If no data file found automatically, ask user to select one
         if not data_file:
