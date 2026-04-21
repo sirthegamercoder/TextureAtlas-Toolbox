@@ -560,6 +560,7 @@ class GenerateTabWidget(BaseTabWidget):
         self._directory_import_worker: Optional[DirectoryImportWorker] = None
         self._directory_import_progress_window: Optional[JobProgressWindow] = None
         self._drop_overlay: Optional[DropTargetOverlay] = None
+        self._drop_host: Optional[Any] = None
 
         self.APP_NAME = Utilities.APP_NAME
         self.ALL_FILES_FILTER = f"{self.tr('All files')} (*.*)"
@@ -871,12 +872,19 @@ class GenerateTabWidget(BaseTabWidget):
         placeholder.setParent(None)
         layout.insertWidget(index, self.animation_tree)
 
-        # Enable drag-and-drop of folders/files onto the tab.
-        self.setAcceptDrops(True)
-        self._drop_overlay = DropTargetOverlay(
-            self,
-            hint_text=self.tr("Drop folders, atlases, or images here"),
-        )
+        # Enable drag-and-drop of folders/files onto the visible tab widget.
+        # GenerateTabWidget runs in controller mode (self is hidden and has
+        # no parent), so we attach drop handling to ui.tool_generate via an
+        # event filter instead of overriding self.dragEnterEvent/dropEvent.
+        host = getattr(self.ui, "tool_generate", None)
+        if host is not None:
+            host.setAcceptDrops(True)
+            host.installEventFilter(self)
+            self._drop_host = host
+            self._drop_overlay = DropTargetOverlay(
+                host,
+                hint_text=self.tr("Drop folders, atlases, or images here"),
+            )
 
         self.jpeg_quality_spin = QSpinBox()
         self.jpeg_quality_spin.setRange(1, 100)
@@ -969,38 +977,48 @@ class GenerateTabWidget(BaseTabWidget):
     # Drag-and-drop entry point
     # ------------------------------------------------------------------
 
-    def dragEnterEvent(self, event):
-        """Show drop overlay when files/folders are dragged over the tab."""
-        if event.mimeData().hasUrls():
-            if self._drop_overlay is not None:
-                self._drop_overlay.show_overlay()
-            event.acceptProposedAction()
-        else:
-            event.ignore()
+    def eventFilter(self, watched, event):
+        """Route drag-and-drop events from the visible tab host widget.
 
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
+        ``GenerateTabWidget`` runs in controller mode and is itself
+        hidden, so drag events are intercepted on ``ui.tool_generate``
+        (installed in ``setup_custom_widgets``) and dispatched here.
+        """
+        from PySide6.QtCore import QEvent
 
-    def dragLeaveEvent(self, event):
-        if self._drop_overlay is not None:
-            self._drop_overlay.hide_overlay()
-        super().dragLeaveEvent(event)
-
-    def dropEvent(self, event):
-        """Dispatch dropped paths to the appropriate import flow."""
-        if self._drop_overlay is not None:
-            self._drop_overlay.hide_overlay()
-        urls = event.mimeData().urls()
-        paths = [Path(u.toLocalFile()) for u in urls if u.isLocalFile()]
-        paths = [p for p in paths if str(p)]
-        if not paths:
-            event.ignore()
-            return
-        event.acceptProposedAction()
-        self._handle_dropped_paths(paths)
+        if watched is getattr(self, "_drop_host", None):
+            etype = event.type()
+            if etype == QEvent.Type.DragEnter:
+                if event.mimeData().hasUrls():
+                    if self._drop_overlay is not None:
+                        self._drop_overlay.show_overlay()
+                    event.acceptProposedAction()
+                    return True
+                event.ignore()
+                return True
+            if etype == QEvent.Type.DragMove:
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    return True
+                event.ignore()
+                return True
+            if etype == QEvent.Type.DragLeave:
+                if self._drop_overlay is not None:
+                    self._drop_overlay.hide_overlay()
+                return True
+            if etype == QEvent.Type.Drop:
+                if self._drop_overlay is not None:
+                    self._drop_overlay.hide_overlay()
+                urls = event.mimeData().urls()
+                paths = [Path(u.toLocalFile()) for u in urls if u.isLocalFile()]
+                paths = [p for p in paths if str(p)]
+                if not paths:
+                    event.ignore()
+                    return True
+                event.acceptProposedAction()
+                self._handle_dropped_paths(paths)
+                return True
+        return super().eventFilter(watched, event)
 
     def _handle_dropped_paths(self, paths: List[Path]) -> None:
         """Route dropped files/folders to add_directory / add_existing_atlas / frames.
