@@ -851,6 +851,9 @@ def restart_application():
                 [sys.executable, main_py],
                 cwd=src_dir,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(
+                f"[FirstStartDialog] Failed to restart application: {e}",
+                file=sys.stderr,
+            )
     sys.exit(0)

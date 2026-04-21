@@ -192,7 +192,7 @@ class AppConfigWindow(QDialog):
             # Fall back to wmic (may fail in frozen builds)
             try:
                 cpu_model = (
-                    subprocess.check_output("wmic cpu get Name", shell=True)
+                    subprocess.check_output(["wmic", "cpu", "get", "Name"])
                     .decode(errors="ignore")
                     .split("\n")[1]
                     .strip()
@@ -209,7 +209,7 @@ class AppConfigWindow(QDialog):
             try:
                 max_threads = int(
                     subprocess.check_output(
-                        "wmic cpu get NumberOfLogicalProcessors", shell=True
+                        ["wmic", "cpu", "get", "NumberOfLogicalProcessors"]
                     )
                     .decode(errors="ignore")
                     .split("\n")[1]

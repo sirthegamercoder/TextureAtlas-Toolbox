@@ -924,49 +924,6 @@ class FileDialogTitles:
     CHOOSE_BG_COLOR = "Choose Background Color"
 
 
-# class GeneratorLabels - COMMENTED OUT: One-off generator-specific labels
-# class GeneratorLabels:
-#     """Generator-specific label strings."""
-#     WIDTH = "Width"
-#     HEIGHT = "Height"
-#     MIN_SIZE = "Min size"
-#     MAX_SIZE = "Max size"
-#     NEW_ANIMATION = "New animation"
-#     AUTO_BEST_RESULT = "Auto (Best Result)"
-#     NOT_AVAILABLE = "N/A"
-
-
-# class GeneratorMessages - COMMENTED OUT: One-off generator-specific messages
-# class GeneratorMessages:
-#     """Generator status and progress messages."""
-#     NO_FRAMES_LOADED = "No frames loaded"
-#     ANIMATIONS_FRAMES_COUNT = "{0} animation(s), {1} frame(s) total"
-#     GENERATING = "Generating atlas..."
-#     PROGRESS = "Progress: {0}/{1} - {2}"
-#     COMPLETED = "Generation completed successfully!"
-#     FAILED = "Generation failed!"
-#     COMPLETED_UPPER = "GENERATION COMPLETED SUCCESSFULLY!"
-#     SUCCESS_HEADER = "Atlas generated successfully!"
-#     ATLAS_PATH = "Atlas: {0}"
-#     SIZE_DIMS = "Size: {0}x{1}"
-#     FRAMES_COUNT = "Frames: {0}"
-#     EFFICIENCY = "Efficiency: {0:.1f}%"
-#     FORMAT_INFO = "Format: {0}"
-#     METADATA_FILES = "Metadata files: {0}"
-#     ERROR_PREFIX = "Error: {0}"
-#     FAILED_DETAIL = "Atlas generation failed:\n\n{0}"
-#     CREATED_FROM_SUBFOLDERS = "Created {0} animation(s) from subfolders."
-#     NO_IMAGES_SUBFOLDERS = "No image files found in any subfolders."
-#     NO_IMAGES_DIR = "No image files found in the selected directory."
-#     NO_FRAMES_ATLAS = "No frames found in the selected atlas data file."
-#     ALL_FRAMES_ADDED = "All frames from this atlas were already added."
-#     ERROR_IMPORTING = "Error importing atlas: {0}"
-#     ADD_FRAMES_FIRST = "Please add frames before generating atlas."
-#     ROTATION_NOT_SUPPORTED = "Rotation is not supported by {0} format."
-#     COMPRESSION_ERROR = "Could not open compression settings: {0}"
-#     AUTO_MODE_SELECTED = "Atlas sizing: Automatic mode selected."
-
-
 class FileFilters:
     """File filter format strings for file dialogs.
 
@@ -978,42 +935,6 @@ class FileFilters:
     ATLAS_IMAGE_FILES = "Atlas image files ({0})"
     SPRITESHEET_DATA_FILES = "Spritesheet data files ({0})"
     ANIMATION_FILES = "Animation files (*.gif *.apng *.png *.webp);;All files (*.*)"
-
-
-# class EditorLabels - COMMENTED OUT: One-off editor-specific labels
-# class EditorLabels:
-#     """Editor tab label strings."""
-#     ANIMATIONS_FRAMES = "Animations & Frames"
-#     FRAME_OFFSET_X = "Frame offset X"
-#     FRAME_OFFSET_Y = "Frame offset Y"
-#     CANVAS_WIDTH = "Canvas width"
-#     CANVAS_HEIGHT = "Canvas height"
-#     CANVAS_ORIGIN = "Canvas origin"
-#     GHOST_FRAME = "Ghost frame"
-#     SNAPPING = "Snapping"
-#     PX = "px"
-#     ZOOM_PERCENT = "Zoom: {value}%"
-#     FRAME_INDEX = "Frame {index}"
-#     CENTERED = "Centered"
-#     TOP_LEFT_FLXSPRITE = "Top-left (FlxSprite)"
-
-
-# class EditorMessages - COMMENTED OUT: One-off editor-specific messages
-# class EditorMessages:
-#     """Editor tab status and info messages."""
-#     PILLOW_REQUIRED = "Pillow is required to load animations."
-#     NO_FRAMES_IN_FILE = "{file} did not contain any frames."
-#     LOAD_ERROR = "Could not load {file}: {error}"
-#     LOADED_FROM_SHEET = "Loaded {animation} from {sheet}."
-#     SELECT_TWO_ANIMATIONS = "Select at least two animations to build a composite entry."
-#     COMPOSITE_MANY = "Composite ({count} animations)"
-#     COMPOSITE_NAMES = "Composite: {names}"
-#     COMPOSITE_CREATED = "Composite entry created with {count} frames."
-#     APPLIED_TO_ANIMATIONS = "Applied ({x}, {y}) to {count} animations."
-#     APPLIED_TO_FRAMES = "Applied ({x}, {y}) to every frame."
-#     SELECT_COMPOSITE = "Select a composite entry generated from multiple animations."
-#     ENTER_COMPOSITE_NAME = "Enter a name for the exported animation"
-#     COMPOSITE_DEFAULT_NAME = "Composite_{count}"
 
 
 class CheckBoxLabels:

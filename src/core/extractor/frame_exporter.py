@@ -300,8 +300,6 @@ class FrameExporter:
 
         try:
             image.save(filename, **save_kwargs)
-            # print(f"Successfully saved {filename} as {frame_format}")
-
         except Exception as e:
             print(f"Error saving {filename} as {frame_format}: {e}")
             try:
