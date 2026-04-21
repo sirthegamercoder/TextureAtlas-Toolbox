@@ -83,7 +83,7 @@ class TexturePackerUnityParser(BaseParser):
                     height = int(float(parts[4]))
                 except (ValueError, IndexError) as exc:
                     raise ContentError(
-                        ParserErrorCode.INVALID_SPRITE_DATA,
+                        ParserErrorCode.INVALID_COORDINATE,
                         f"Non-numeric coordinate in sprite '{name}': {exc}",
                         file_path=file_path,
                     )

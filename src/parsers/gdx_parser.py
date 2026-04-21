@@ -240,7 +240,7 @@ class GdxAtlasParser(BaseParser):
                 orig_h = int(vals[1]) if len(vals) > 1 else 0
         except (ValueError, IndexError) as exc:
             raise ContentError(
-                ParserErrorCode.INVALID_SPRITE_DATA,
+                ParserErrorCode.INVALID_COORDINATE,
                 f"Non-numeric coordinate in sprite '{name}': {exc}",
             )
 

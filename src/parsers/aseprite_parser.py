@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from parsers.base_parser import BaseParser
 from parsers.parser_types import (
+    ContentError,
     FileError,
     FormatError,
     ParseResult,
@@ -167,16 +168,26 @@ class AsepriteParser(BaseParser):
         # Get ordered list of frame names (Aseprite exports in order)
         for idx, (filename, entry) in enumerate(frames.items()):
             frame = entry.get("frame", {})
-            frame_x = int(frame.get("x", 0))
-            frame_y = int(frame.get("y", 0))
-            frame_w = int(frame.get("w", 0))
-            frame_h = int(frame.get("h", 0))
-
             sprite_source = entry.get("spriteSourceSize", {})
             source_size = entry.get("sourceSize", {})
+            try:
+                frame_x = int(frame.get("x", 0))
+                frame_y = int(frame.get("y", 0))
+                frame_w = int(frame.get("w", 0))
+                frame_h = int(frame.get("h", 0))
+                source_x = int(sprite_source.get("x", 0))
+                source_y = int(sprite_source.get("y", 0))
+                source_w = int(source_size.get("w", frame_w))
+                source_h = int(source_size.get("h", frame_h))
+                duration = int(entry.get("duration", 100))
+            except (TypeError, ValueError) as exc:
+                raise ContentError(
+                    ParserErrorCode.INVALID_COORDINATE,
+                    f"Non-numeric coordinate in sprite '{filename}': {exc}",
+                )
+
             rotated = bool(entry.get("rotated", False))
             trimmed = bool(entry.get("trimmed", False))
-            duration = int(entry.get("duration", 100))
 
             sprite_data: Dict[str, Any] = {
                 "name": filename,
@@ -184,10 +195,10 @@ class AsepriteParser(BaseParser):
                 "y": frame_y,
                 "width": frame_w,
                 "height": frame_h,
-                "frameX": -int(sprite_source.get("x", 0)),
-                "frameY": -int(sprite_source.get("y", 0)),
-                "frameWidth": int(source_size.get("w", frame_w)),
-                "frameHeight": int(source_size.get("h", frame_h)),
+                "frameX": -source_x,
+                "frameY": -source_y,
+                "frameWidth": source_w,
+                "frameHeight": source_h,
                 "rotated": rotated,
                 "trimmed": trimmed,
                 "duration": duration,
@@ -411,18 +422,34 @@ class AsepriteParser(BaseParser):
                 sprite_source = entry.get("spriteSourceSize", {})
                 source_size = entry.get("sourceSize", {})
 
+                try:
+                    frame_x = int(frame.get("x", 0))
+                    frame_y = int(frame.get("y", 0))
+                    frame_w = int(frame.get("w", 0))
+                    frame_h = int(frame.get("h", 0))
+                    source_x = int(sprite_source.get("x", 0))
+                    source_y = int(sprite_source.get("y", 0))
+                    source_w = int(source_size.get("w", frame_w))
+                    source_h = int(source_size.get("h", frame_h))
+                    duration = int(entry.get("duration", 100))
+                except (TypeError, ValueError) as exc:
+                    raise ContentError(
+                        ParserErrorCode.INVALID_COORDINATE,
+                        f"Non-numeric coordinate in sprite '{filename}': {exc}",
+                    )
+
                 sprite_data = {
                     "name": filename,
-                    "x": int(frame.get("x", 0)),
-                    "y": int(frame.get("y", 0)),
-                    "width": int(frame.get("w", 0)),
-                    "height": int(frame.get("h", 0)),
-                    "frameX": -int(sprite_source.get("x", 0)),
-                    "frameY": -int(sprite_source.get("y", 0)),
-                    "frameWidth": int(source_size.get("w", frame.get("w", 0))),
-                    "frameHeight": int(source_size.get("h", frame.get("h", 0))),
+                    "x": frame_x,
+                    "y": frame_y,
+                    "width": frame_w,
+                    "height": frame_h,
+                    "frameX": -source_x,
+                    "frameY": -source_y,
+                    "frameWidth": source_w,
+                    "frameHeight": source_h,
                     "rotated": bool(entry.get("rotated", False)),
-                    "duration": int(entry.get("duration", 100)),
+                    "duration": duration,
                     "animation_tag": animation_name,
                     "animation_direction": target_tag.get("direction", "forward"),
                 }
