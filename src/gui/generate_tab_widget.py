@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 from PySide6.QtWidgets import (
     QSpinBox,
     QFileDialog,
@@ -33,6 +35,9 @@ from utils.utilities import Utilities
 # Import the new generator system
 from core.generator import AtlasGenerator, GeneratorOptions, get_available_algorithms
 from utils.translation_manager import tr as translate
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 from utils.ui_constants import (
     ButtonLabels,
     Labels,
@@ -190,7 +195,9 @@ class AtlasImportWorker(QThread):
                         frame_paths.append(str(temp_frame_path))
 
                     except Exception as e:
-                        print(f"Error extracting frame {sprite_data['name']}: {e}")
+                        logger.exception(
+                            "Error extracting frame %s: %s", sprite_data["name"], e
+                        )
                         continue
 
                     processed += 1
@@ -210,6 +217,213 @@ class AtlasImportWorker(QThread):
 
         except Exception as e:
             self.import_failed.emit(str(e))
+
+
+class DirectoryImportWorker(QThread):
+    """Worker thread for scanning and importing a directory of frames.
+
+    Walks the selected folder, separates static images from animated ones
+    (GIF/APNG/animated WebP), and decodes each animated image into a temp
+    directory of numbered PNG frames. All filesystem and PIL work happens
+    here so the GUI thread can stay responsive.
+
+    The worker emits a structured "import plan" on completion describing
+    what should be added to the animation tree; actual GUI mutation is
+    performed by the main thread in the parent widget's slot.
+
+    Signals:
+        progress_updated: ``(current, total, message)`` while processing.
+        import_completed: ``(plan_dict)`` with subfolder/static/animated
+            breakdown, temp directories to track, and any per-file warnings.
+        import_failed: ``(error_message)`` for unrecoverable errors.
+    """
+
+    progress_updated = Signal(int, int, str)
+    import_completed = Signal(dict)
+    import_failed = Signal(str)
+
+    def __init__(
+        self,
+        directory_path: Path,
+        image_extensions: set,
+        animated_extensions: set,
+    ):
+        super().__init__()
+        self._directory_path = directory_path
+        self._image_extensions = set(image_extensions)
+        self._animated_extensions = set(animated_extensions)
+
+    def run(self):
+        """Scan the directory tree and decode any animated images found."""
+        try:
+            subfolders = [
+                item for item in self._directory_path.iterdir() if item.is_dir()
+            ]
+
+            plan: Dict[str, Any] = {
+                "had_subfolders": bool(subfolders),
+                "subfolders": [],
+                "root_static_files": [],
+                "root_animated_groups": [],
+                "temp_dirs": [],
+                "warnings": [],
+            }
+
+            # Pre-count animated files so progress can be meaningful.
+            total_animated = self._count_animated_files(subfolders)
+            processed_animated = 0
+            if total_animated:
+                self.progress_updated.emit(
+                    0,
+                    total_animated,
+                    f"Scanning directory ({total_animated} animated files)...",
+                )
+
+            if subfolders:
+                for subfolder in subfolders:
+                    files = self._glob_all_importable(subfolder)
+                    if not files:
+                        continue
+                    static, animated = self._separate_animated_files(
+                        [str(f) for f in files]
+                    )
+                    animated_groups: List[Dict[str, Any]] = []
+                    for anim_path in animated:
+                        result = self._extract_animated_frames(anim_path)
+                        if result["frame_paths"]:
+                            animated_groups.append(
+                                {
+                                    "name": Path(anim_path).stem,
+                                    "frame_paths": result["frame_paths"],
+                                }
+                            )
+                            plan["temp_dirs"].append(result["temp_dir"])
+                        if result["warning"]:
+                            plan["warnings"].append(result["warning"])
+                        processed_animated += 1
+                        self.progress_updated.emit(
+                            processed_animated,
+                            total_animated,
+                            f"Decoding animated images "
+                            f"{processed_animated}/{total_animated}...",
+                        )
+                    plan["subfolders"].append(
+                        {
+                            "name": subfolder.name,
+                            "static_files": static,
+                            "animated_groups": animated_groups,
+                        }
+                    )
+            else:
+                files = self._glob_all_importable(self._directory_path)
+                if files:
+                    static, animated = self._separate_animated_files(
+                        [str(f) for f in files]
+                    )
+                    plan["root_static_files"] = static
+                    for anim_path in animated:
+                        result = self._extract_animated_frames(anim_path)
+                        if result["frame_paths"]:
+                            plan["root_animated_groups"].append(
+                                {
+                                    "name": Path(anim_path).stem,
+                                    "frame_paths": result["frame_paths"],
+                                }
+                            )
+                            plan["temp_dirs"].append(result["temp_dir"])
+                        if result["warning"]:
+                            plan["warnings"].append(result["warning"])
+                        processed_animated += 1
+                        self.progress_updated.emit(
+                            processed_animated,
+                            total_animated,
+                            f"Decoding animated images "
+                            f"{processed_animated}/{total_animated}...",
+                        )
+
+            self.import_completed.emit(plan)
+        except Exception as exc:  # noqa: BLE001 - report all failures
+            logger.exception(
+                "[DirectoryImportWorker] Failed to scan %s", self._directory_path
+            )
+            self.import_failed.emit(str(exc))
+
+    def _count_animated_files(self, subfolders: List[Path]) -> int:
+        """Pre-scan the tree to give the progress bar a meaningful total."""
+        count = 0
+        roots: List[Path] = subfolders if subfolders else [self._directory_path]
+        for root in roots:
+            for f in self._glob_all_importable(root):
+                if self._is_animated_image(str(f)):
+                    count += 1
+        return count
+
+    def _glob_all_importable(self, folder: Path) -> List[Path]:
+        """Collect static + animated importable files from a folder (no recursion)."""
+        all_exts = self._image_extensions | self._animated_extensions
+        files: List[Path] = []
+        for ext in all_exts:
+            files.extend(folder.glob(f"*{ext}"))
+            files.extend(folder.glob(f"*{ext.upper()}"))
+        return files
+
+    def _is_animated_image(self, file_path: str) -> bool:
+        """Detect whether a file is a multi-frame animated image."""
+        ext = Path(file_path).suffix.lower()
+        if ext in self._animated_extensions:
+            return True
+        if ext == ".webp":
+            try:
+                with Image.open(file_path) as img:
+                    return getattr(img, "n_frames", 1) > 1
+            except Exception:
+                return False
+        return False
+
+    def _separate_animated_files(
+        self, file_paths: List[str]
+    ) -> Tuple[List[str], List[str]]:
+        """Split paths into ``(static, animated)`` lists."""
+        static: List[str] = []
+        animated: List[str] = []
+        for fp in file_paths:
+            if self._is_animated_image(fp):
+                animated.append(fp)
+            else:
+                static.append(fp)
+        return static, animated
+
+    def _extract_animated_frames(self, file_path: str) -> Dict[str, Any]:
+        """Decode an animated image to numbered PNG frames in a temp directory.
+
+        Returns a dict with ``frame_paths`` (possibly empty), ``temp_dir``
+        (only set when frames were produced), and ``warning`` (a string
+        describing any failure, or None).
+        """
+        import shutil
+        import tempfile
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="tatgf_anim_"))
+        stem = Path(file_path).stem
+        frame_paths: List[str] = []
+        warning: Optional[str] = None
+
+        try:
+            with Image.open(file_path) as img:
+                for idx, frame in enumerate(ImageSequence.Iterator(img)):
+                    frame = frame.convert("RGBA")
+                    out_path = temp_dir / f"{stem}_{idx:04d}.png"
+                    frame.save(str(out_path), "PNG")
+                    frame_paths.append(str(out_path))
+        except Exception as exc:  # noqa: BLE001 - report and continue
+            warning = f"Could not extract frames from {Path(file_path).name}: {exc}"
+            logger.exception("[DirectoryImportWorker] Failed to decode %s", file_path)
+
+        if not frame_paths:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return {"frame_paths": [], "temp_dir": None, "warning": warning}
+
+        return {"frame_paths": frame_paths, "temp_dir": temp_dir, "warning": warning}
 
 
 class GeneratorWorker(QThread):
@@ -342,6 +556,8 @@ class GenerateTabWidget(BaseTabWidget):
         self._progress_window = None
         self.animation_groups = {}
         self.atlas_settings = {}
+        self._directory_import_worker: Optional[DirectoryImportWorker] = None
+        self._directory_import_progress_window: Optional[JobProgressWindow] = None
 
         self.APP_NAME = Utilities.APP_NAME
         self.ALL_FILES_FILTER = f"{self.tr('All files')} (*.*)"
@@ -747,90 +963,199 @@ class GenerateTabWidget(BaseTabWidget):
         directory or its subfolders are automatically split into
         individual frame sequences, each placed into its own
         animation group named after the source file.
+
+        Directory scanning and animated image decoding run in a
+        background thread (``DirectoryImportWorker``). Animation tree
+        mutations happen on the GUI thread when the worker reports back.
         """
+        if (
+            getattr(self, "_directory_import_worker", None) is not None
+            and self._directory_import_worker.isRunning()
+        ):
+            QMessageBox.information(
+                self,
+                self.APP_NAME,
+                self.tr("A directory import is already in progress."),
+            )
+            return
+
         directory = QFileDialog.getExistingDirectory(
             self, self.tr(FileDialogTitles.SELECT_FRAME_DIR), ""
         )
+        if not directory:
+            return
 
-        if directory:
-            directory_path = Path(directory)
+        directory_path = Path(directory)
 
-            subfolders = [item for item in directory_path.iterdir() if item.is_dir()]
+        worker = DirectoryImportWorker(
+            directory_path=directory_path,
+            image_extensions=set(self.IMAGE_FORMATS.keys()),
+            animated_extensions=self.ANIMATED_IMPORT_FORMATS,
+        )
+        worker.progress_updated.connect(self._on_directory_import_progress)
+        worker.import_completed.connect(self._on_directory_import_completed)
+        worker.import_failed.connect(self._on_directory_import_failed)
+        worker.finished.connect(worker.deleteLater)
 
-            if subfolders:
+        self._directory_import_worker = worker
+        if hasattr(self, "_add_directory_action"):
+            self._add_directory_action.setEnabled(False)
+
+        # Open progress window so users see scan/decode progress and the
+        # final summary in one place (no extra popups).
+        self._directory_import_progress_window = JobProgressWindow(
+            self, title=self.tr("Importing Folder")
+        )
+        self._directory_import_progress_window.start()
+        self._directory_import_progress_window.append_log(
+            self.tr("Scanning: {0}").format(str(directory_path))
+        )
+        self._directory_import_progress_window.show()
+
+        worker.start()
+
+    def _on_directory_import_progress(
+        self, current: int, total: int, message: str
+    ) -> None:
+        """Forward worker progress to the progress window and status hint."""
+        if total > 0:
+            text = self.tr("Importing folder: {message}").format(message=message)
+        else:
+            text = self.tr("Importing folder...")
+        self.frame_info_label.setText(text)
+
+        window = getattr(self, "_directory_import_progress_window", None)
+        if window is not None:
+            window.update_progress(current, total, message)
+            window.append_log(message)
+
+    def _on_directory_import_completed(self, plan: Dict[str, Any]) -> None:
+        """Apply the worker's import plan to the animation tree on the GUI thread."""
+        if hasattr(self, "_add_directory_action"):
+            self._add_directory_action.setEnabled(True)
+        self._directory_import_worker = None
+
+        # Track temp dirs so they get cleaned up on clear_frames().
+        if plan["temp_dirs"]:
+            if not hasattr(self, "temp_atlas_dirs"):
+                self.temp_atlas_dirs = []
+            self.temp_atlas_dirs.extend(plan["temp_dirs"])
+
+        summary_lines: List[str] = []
+        had_failures = False
+
+        try:
+            if plan["had_subfolders"]:
                 animations_created = 0
-                for subfolder in subfolders:
-                    files = self._glob_all_importable(subfolder)
+                for subfolder_entry in plan["subfolders"]:
+                    static = subfolder_entry["static_files"]
+                    animated_groups = subfolder_entry["animated_groups"]
 
-                    if files:
-                        static, animated = self._separate_animated_files(
-                            [str(f) for f in files]
+                    if static:
+                        animation_name = subfolder_entry["name"]
+                        new_animation_item = self.animation_tree.add_animation_group(
+                            animation_name
                         )
-
-                        if static:
-                            animation_name = subfolder.name
-                            new_animation_item = (
-                                self.animation_tree.add_animation_group(animation_name)
-                            )
-                            actual_animation_name = new_animation_item.text(0)
-
-                            for file_path in static:
-                                if not self.is_frame_already_added(file_path):
-                                    self.animation_tree.add_frame_to_animation(
-                                        actual_animation_name, file_path
-                                    )
-                                    self.input_frames.append(file_path)
-                                    self._added_frame_paths.add(file_path)
-
-                            animations_created += 1
-
-                        for anim_path in animated:
-                            extracted = self._extract_animated_frames(anim_path)
-                            if extracted:
-                                self.add_frames_to_new_animation(
-                                    extracted,
-                                    animation_name=Path(anim_path).stem,
+                        actual_animation_name = new_animation_item.text(0)
+                        for file_path in static:
+                            if not self.is_frame_already_added(file_path):
+                                self.animation_tree.add_frame_to_animation(
+                                    actual_animation_name, file_path
                                 )
-                                animations_created += 1
+                                self.input_frames.append(file_path)
+                                self._added_frame_paths.add(file_path)
+                        animations_created += 1
+
+                    for anim_group in animated_groups:
+                        self.add_frames_to_new_animation(
+                            anim_group["frame_paths"],
+                            animation_name=anim_group["name"],
+                        )
+                        animations_created += 1
 
                 if animations_created > 0:
-                    QMessageBox.information(
-                        self,
-                        self.APP_NAME,
+                    summary_lines.append(
                         self.tr("Created {0} animation(s) from subfolders.").format(
                             animations_created
-                        ),
+                        )
                     )
                 else:
-                    QMessageBox.information(
-                        self,
-                        self.APP_NAME,
-                        self.tr("No image files found in any subfolders."),
+                    summary_lines.append(
+                        self.tr("No image files found in any subfolders.")
                     )
             else:
-                files = self._glob_all_importable(directory_path)
-
-                if files:
-                    static, animated = self._separate_animated_files(
-                        [str(f) for f in files]
+                static = plan["root_static_files"]
+                animated_groups = plan["root_animated_groups"]
+                if static:
+                    self.add_frames_to_default_animation(static)
+                for anim_group in animated_groups:
+                    self.add_frames_to_new_animation(
+                        anim_group["frame_paths"],
+                        animation_name=anim_group["name"],
                     )
-                    if static:
-                        self.add_frames_to_default_animation(static)
-                    for anim_path in animated:
-                        extracted = self._extract_animated_frames(anim_path)
-                        if extracted:
-                            self.add_frames_to_new_animation(
-                                extracted, animation_name=Path(anim_path).stem
-                            )
+                if not static and not animated_groups:
+                    summary_lines.append(
+                        self.tr("No image files found in the selected folder.")
+                    )
                 else:
-                    QMessageBox.information(
-                        self,
-                        self.APP_NAME,
-                        self.tr("No image files found in the selected folder."),
+                    static_count = len(static)
+                    animated_count = len(animated_groups)
+                    summary_lines.append(
+                        self.tr(
+                            "Imported {0} static frame(s) and {1} animated group(s)."
+                        ).format(static_count, animated_count)
                     )
 
+            if plan["warnings"]:
+                had_failures = True
+                summary_lines.append("")
+                summary_lines.append(
+                    self.tr("Warnings ({0}):").format(len(plan["warnings"]))
+                )
+                for warning in plan["warnings"]:
+                    summary_lines.append(f"  - {warning}")
+        finally:
             self.update_frame_info()
             self.update_generate_button_state()
+
+            window = getattr(self, "_directory_import_progress_window", None)
+            if window is not None:
+                window.append_log("")
+                for line in summary_lines:
+                    window.append_log(line)
+                if had_failures:
+                    window.finish(
+                        success=False,
+                        message=self.tr("Import finished with warnings."),
+                    )
+                else:
+                    window.finish(
+                        success=True,
+                        message=self.tr("Import completed successfully!"),
+                    )
+                self._directory_import_progress_window = None
+
+    def _on_directory_import_failed(self, error_message: str) -> None:
+        """Surface an unrecoverable scan error to the user."""
+        if hasattr(self, "_add_directory_action"):
+            self._add_directory_action.setEnabled(True)
+        self._directory_import_worker = None
+        self.update_frame_info()
+
+        window = getattr(self, "_directory_import_progress_window", None)
+        if window is not None:
+            window.append_log("")
+            window.append_log(
+                self.tr("Failed to import directory: {0}").format(error_message)
+            )
+            window.finish(success=False, message=error_message)
+            self._directory_import_progress_window = None
+        else:
+            QMessageBox.critical(
+                self,
+                self.APP_NAME,
+                self.tr("Failed to import directory: {0}").format(error_message),
+            )
 
     def add_animation_group(self):
         """Add a new animation group."""
@@ -1020,16 +1345,12 @@ class GenerateTabWidget(BaseTabWidget):
         self._add_atlas_action.setEnabled(True)
 
         if total_frames_added > 0:
-            QMessageBox.information(
-                self,
-                self.APP_NAME,
-                self.tr(
-                    "Successfully imported {0} frames from atlas '{1}' into {2} animations."
-                ).format(
-                    total_frames_added,
-                    self._import_atlas_name,
-                    len(self._import_animation_groups),
-                ),
+            summary = self.tr(
+                "Successfully imported {0} frames from atlas '{1}' into {2} animations."
+            ).format(
+                total_frames_added,
+                self._import_atlas_name,
+                len(self._import_animation_groups),
             )
 
             if not hasattr(self, "temp_atlas_dirs"):
@@ -1039,16 +1360,14 @@ class GenerateTabWidget(BaseTabWidget):
             self.update_frame_info()
             self.update_generate_button_state()
         else:
-            QMessageBox.information(
-                self,
-                self.APP_NAME,
-                self.tr("All frames from this atlas were already added."),
-            )
+            summary = self.tr("All frames from this atlas were already added.")
             import shutil
 
             shutil.rmtree(self._import_temp_dir, ignore_errors=True)
 
         if self._import_progress_window is not None:
+            self._import_progress_window.append_log("")
+            self._import_progress_window.append_log(summary)
             self._import_progress_window.finish(
                 success=total_frames_added > 0,
                 message=self.tr("Import completed."),
@@ -1059,19 +1378,24 @@ class GenerateTabWidget(BaseTabWidget):
         """Handle failed atlas import from worker thread."""
         self.add_existing_atlas_button.setEnabled(True)
         self._add_atlas_action.setEnabled(True)
-        if self._import_progress_window is not None:
-            self._import_progress_window.finish(success=False, message=str(error_msg))
 
         if self._import_temp_dir and self._import_temp_dir.exists():
             import shutil
 
             shutil.rmtree(self._import_temp_dir, ignore_errors=True)
 
-        QMessageBox.critical(
-            self,
-            self.APP_NAME,
-            self.tr("Error importing atlas: {0}").format(error_msg),
-        )
+        if self._import_progress_window is not None:
+            self._import_progress_window.append_log("")
+            self._import_progress_window.append_log(
+                self.tr("Failed to import atlas: {0}").format(error_msg)
+            )
+            self._import_progress_window.finish(success=False, message=str(error_msg))
+        else:
+            QMessageBox.critical(
+                self,
+                self.APP_NAME,
+                self.tr("Error importing atlas: {0}").format(error_msg),
+            )
         self._import_worker = None
 
     def _configure_packer_combo(self):
@@ -1831,7 +2155,9 @@ class GenerateTabWidget(BaseTabWidget):
                     if temp_dir.exists():
                         shutil.rmtree(temp_dir, ignore_errors=True)
                 except Exception as e:
-                    print(f"Error cleaning up temp directory {temp_dir}: {e}")
+                    logger.exception(
+                        "Error cleaning up temp directory %s: %s", temp_dir, e
+                    )
             self.temp_atlas_dirs.clear()
 
         self.input_frames.clear()
@@ -2107,6 +2433,7 @@ class GenerateTabWidget(BaseTabWidget):
 
         successes = [(name, r) for name, r in self._job_results if "error" not in r]
         failures = [(name, r) for name, r in self._job_results if "error" in r]
+        message = ""
 
         if len(self._job_results) == 1 and successes:
             # Single-job: show the same detailed message as before
@@ -2148,11 +2475,19 @@ class GenerateTabWidget(BaseTabWidget):
                 for name, r in failures:
                     lines.append(f"  - {name}: {r.get('error', '?')}")
             message = "\n".join(lines)
-        # Finalize the progress window
+        # Finalize the progress window. Detailed result info is appended to
+        # the log instead of a separate popup so the progress window is the
+        # single source of truth for completion state.
         if self._progress_window is not None:
             has_failures = any("error" in r for _, r in self._job_results)
             total_jobs = len(self._job_results)
             self._progress_window.update_progress(total_jobs, total_jobs)
+
+            if message:
+                self._progress_window.append_log("")
+                for line in message.splitlines():
+                    self._progress_window.append_log(line)
+
             if has_failures:
                 self._progress_window.finish(
                     success=False,
@@ -2165,15 +2500,9 @@ class GenerateTabWidget(BaseTabWidget):
                     success=True,
                     message=self.tr("Generation completed successfully!"),
                 )
-
-        # Show result dialogs after progress window is finalized
-        if len(self._job_results) == 1 and successes:
-            QMessageBox.information(self, self.APP_NAME, message)
-        elif successes or failures:
-            if failures:
-                QMessageBox.warning(self, self.APP_NAME, message)
-            else:
-                QMessageBox.information(self, self.APP_NAME, message)
+        elif failures:
+            # Fallback only if the progress window was somehow dismissed early.
+            QMessageBox.warning(self, self.APP_NAME, message)
 
     def on_progress_updated(self, current, total, message):
         """Handle progress updates from the generator worker."""

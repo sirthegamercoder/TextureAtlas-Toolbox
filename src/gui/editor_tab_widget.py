@@ -19,6 +19,7 @@ from PySide6.QtCore import (
     QRect,
     QSize,
     Qt,
+    QThread,
     Signal,
 )
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
@@ -49,6 +50,9 @@ from PySide6.QtWidgets import (
 from gui.base_tab_widget import BaseTabWidget
 from utils.FNF.alignment import resolve_fnf_offset
 from utils.translation_manager import translate
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 from utils.ui_constants import (
     Tooltips,
     ButtonLabels,
@@ -582,6 +586,165 @@ class CanvasDetachWindow(QDialog):
         super().closeEvent(event)
 
 
+class EditorAnimationLoaderWorker(QThread):
+    """Background worker that loads an animation from extractor metadata.
+
+    Performs the expensive image decode and per-frame PIL processing on a
+    worker thread, then emits raw RGBA byte buffers back to the GUI thread.
+    QPixmap construction must happen on the GUI thread so it is deferred to
+    the main thread's ``finished`` slot.
+
+    Signals:
+        progress: ``(current_frame, total_frames)`` during frame conversion.
+        finished_ok: ``(payload_dict)`` on success. Payload contains
+            ``frames`` (list of ``(name, rgba_bytes, width, height, metadata)``
+            tuples), plus the original parameters needed to assemble an
+            ``AlignmentAnimation`` on the main thread.
+        failed: ``(error_message)`` on any exception during loading.
+    """
+
+    progress = Signal(int, int)
+    finished_ok = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        spritesheet_name: str,
+        animation_name: str,
+        spritesheet_path: str,
+        metadata_path: Optional[str],
+        spritemap_info: Optional[dict],
+        spritemap_target: Optional[Any],
+        smart_grouping: bool,
+        frame_duration: int,
+        parent: Optional[QObject] = None,
+    ):
+        """Capture immutable parameters needed to build the animation."""
+        super().__init__(parent)
+        self._spritesheet_name = spritesheet_name
+        self._animation_name = animation_name
+        self._spritesheet_path = spritesheet_path
+        self._metadata_path = metadata_path
+        self._spritemap_info = spritemap_info
+        self._spritemap_target = spritemap_target
+        self._smart_grouping = smart_grouping
+        self._frame_duration = frame_duration
+
+    def run(self) -> None:  # noqa: D401 - Qt API
+        """Load metadata, decode frames, and emit raw RGBA buffers."""
+        try:
+            raw_frames = self._fetch_raw_frames()
+            if not raw_frames:
+                self.finished_ok.emit(
+                    {
+                        "spritesheet_name": self._spritesheet_name,
+                        "animation_name": self._animation_name,
+                        "spritesheet_path": self._spritesheet_path,
+                        "metadata_path": self._metadata_path,
+                        "frame_duration": self._frame_duration,
+                        "frames": [],
+                    }
+                )
+                return
+
+            total = len(raw_frames)
+            converted: List[Tuple[str, bytes, int, int, Dict[str, int]]] = []
+            for idx, frame_entry in enumerate(raw_frames):
+                frame_name, pil_image, raw_meta = frame_entry
+                pil_image = EditorTabWidget._ensure_pil_image(pil_image)
+                if pil_image.mode != "RGBA":
+                    pil_image = pil_image.convert("RGBA")
+                metadata = EditorTabWidget._extract_frame_metadata(raw_meta)
+                rgba_bytes = pil_image.tobytes("raw", "RGBA")
+                converted.append(
+                    (
+                        frame_name,
+                        rgba_bytes,
+                        pil_image.width,
+                        pil_image.height,
+                        metadata,
+                    )
+                )
+                self.progress.emit(idx + 1, total)
+
+            self.finished_ok.emit(
+                {
+                    "spritesheet_name": self._spritesheet_name,
+                    "animation_name": self._animation_name,
+                    "spritesheet_path": self._spritesheet_path,
+                    "metadata_path": self._metadata_path,
+                    "frame_duration": self._frame_duration,
+                    "frames": converted,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - report any failure to UI
+            logger.exception(
+                "[EditorAnimationLoaderWorker] Failed to load %s/%s",
+                self._spritesheet_name,
+                self._animation_name,
+            )
+            self.failed.emit(str(exc))
+
+    def _fetch_raw_frames(self):
+        """Run the appropriate atlas/spritemap pipeline to produce PIL frames."""
+        if self._spritemap_info:
+            from core.extractor.spritemap import AdobeSpritemapRenderer
+
+            target = self._spritemap_target or self._animation_name
+            animation_json = self._spritemap_info.get("animation_json")
+            spritemap_json = self._spritemap_info.get("spritemap_json")
+            if not (animation_json and spritemap_json):
+                raise ValueError("Spritemap metadata is incomplete.")
+            renderer = AdobeSpritemapRenderer(
+                animation_json,
+                spritemap_json,
+                self._spritesheet_path,
+                filter_single_frame=True,
+            )
+            return renderer.render_animation(target)
+
+        if not self._metadata_path:
+            raise ValueError("The selected spritesheet does not have metadata.")
+
+        from core.extractor.atlas_processor import AtlasProcessor
+        from core.extractor.sprite_processor import SpriteProcessor
+
+        if self._smart_grouping:
+            atlas_processor = AtlasProcessor(
+                self._spritesheet_path, self._metadata_path
+            )
+            sprite_processor = SpriteProcessor(
+                atlas_processor.atlas,
+                atlas_processor.sprites,
+                smart_animation_grouping=True,
+            )
+            all_animations = sprite_processor.process_sprites()
+            return all_animations.get(self._animation_name, [])
+
+        atlas_processor = AtlasProcessor(self._spritesheet_path, self._metadata_path)
+        if self._metadata_path.endswith(".xml"):
+            animation_sprites = atlas_processor.parse_xml_for_preview(
+                self._animation_name
+            )
+        elif self._metadata_path.endswith(".txt"):
+            animation_sprites = atlas_processor.parse_txt_for_preview(
+                self._animation_name
+            )
+        else:
+            animation_sprites = []
+
+        if not animation_sprites:
+            return []
+
+        sprite_processor = SpriteProcessor(
+            atlas_processor.atlas,
+            animation_sprites,
+            smart_animation_grouping=False,
+        )
+        processed = sprite_processor.process_specific_animation(self._animation_name)
+        return processed.get(self._animation_name, [])
+
+
 class EditorTabWidget(BaseTabWidget):
     """High-level controller for the alignment editor tab UI and logic."""
 
@@ -617,6 +780,7 @@ class EditorTabWidget(BaseTabWidget):
         self._animation_items: Dict[str, QTreeWidgetItem] = {}
         self._tree_reorder_filter: Optional[QObject] = None
         self._multi_drag_baselines: Optional[Dict[str, Tuple[int, int]]] = None
+        self._animation_loader: Optional[EditorAnimationLoaderWorker] = None
         self._default_status_text = self.tr(
             "Drag the frame, use arrow keys for fine adjustments, or type offsets manually."
         )
@@ -1423,24 +1587,84 @@ class EditorTabWidget(BaseTabWidget):
         spritemap_info: Optional[dict] = None,
         spritemap_target: Optional[dict] = None,
     ):
-        """Public entry point used by the extract tab to open an animation."""
-        animation = self._build_animation_from_spritesheet(
-            spritesheet_name,
-            animation_name,
-            spritesheet_path,
-            metadata_path,
-            spritemap_info,
-            spritemap_target,
-        )
-        if animation:
-            self._register_animation(animation)
+        """Public entry point used by the extract tab to open an animation.
+
+        Spawns an ``EditorAnimationLoaderWorker`` so the GUI thread stays
+        responsive while atlas/spritemap data is decoded. Only one loader
+        runs at a time — a second request while one is in flight is queued
+        by Qt's event loop after the previous worker completes (the user
+        sees a status update indicating the load is busy).
+        """
+        if self._animation_loader is not None and self._animation_loader.isRunning():
             self.status_label.setText(
-                self.tr("Loaded {animation} from {sheet}.").format(
-                    animation=animation_name, sheet=spritesheet_name
-                )
+                self.tr("Already loading an animation, please wait...")
             )
-            self._focus_latest_animation()
-        else:
+            return
+
+        # Resolve settings on the GUI thread (settings_manager is not
+        # guaranteed to be thread-safe).
+        smart_grouping = False
+        frame_duration = 42  # ~24fps default
+        config = getattr(self.parent_app, "app_config", None)
+        if config:
+            smart_grouping = config.get("interface", {}).get(
+                "smart_animation_grouping", True
+            )
+        if hasattr(self.parent_app, "settings_manager"):
+            settings = self.parent_app.settings_manager.get_settings(
+                spritesheet_name, f"{spritesheet_name}/{animation_name}"
+            )
+            if "duration" in settings:
+                frame_duration = settings.get("duration", 42)
+            elif "fps" in settings:
+                fps = settings.get("fps", 24)
+                frame_duration = int(round(1000 / max(1, fps)))
+
+        self.status_label.setText(
+            self.tr("Loading {animation} from {sheet}...").format(
+                animation=animation_name, sheet=spritesheet_name
+            )
+        )
+
+        worker = EditorAnimationLoaderWorker(
+            spritesheet_name=spritesheet_name,
+            animation_name=animation_name,
+            spritesheet_path=spritesheet_path,
+            metadata_path=metadata_path,
+            spritemap_info=spritemap_info,
+            spritemap_target=spritemap_target,
+            smart_grouping=smart_grouping,
+            frame_duration=frame_duration,
+            parent=self,
+        )
+        worker.progress.connect(self._on_animation_loader_progress)
+        worker.finished_ok.connect(self._on_animation_loader_finished)
+        worker.failed.connect(self._on_animation_loader_failed)
+        worker.finished.connect(worker.deleteLater)
+        self._animation_loader = worker
+        worker.start()
+
+    def _on_animation_loader_progress(self, current: int, total: int) -> None:
+        """Update the editor status label with per-frame load progress."""
+        self.status_label.setText(
+            self.tr("Loading frame {current}/{total}...").format(
+                current=current, total=total
+            )
+        )
+
+    def _on_animation_loader_finished(self, payload: dict) -> None:
+        """Assemble the ``AlignmentAnimation`` on the GUI thread.
+
+        ``QPixmap`` instances must be created on the GUI thread, so the
+        worker only ships raw RGBA bytes; conversion happens here.
+        """
+        self._animation_loader = None
+        spritesheet_name = payload["spritesheet_name"]
+        animation_name = payload["animation_name"]
+        raw_frames = payload["frames"]
+
+        if not raw_frames:
+            self.status_label.setText(self._default_status_text)
             QMessageBox.warning(
                 self,
                 self.tr(TabTitles.EDITOR),
@@ -1448,144 +1672,71 @@ class EditorTabWidget(BaseTabWidget):
                     "Could not load animation '{animation}' from '{sheet}'."
                 ).format(animation=animation_name, sheet=spritesheet_name),
             )
+            return
 
-    def _build_animation_from_spritesheet(
-        self,
-        spritesheet_name: str,
-        animation_name: str,
-        spritesheet_path: str,
-        metadata_path: Optional[str],
-        spritemap_info: Optional[dict],
-        spritemap_target: Optional[dict],
-    ) -> Optional[AlignmentAnimation]:
-        """Assemble an animation from atlas metadata or spritemap exports."""
-        try:
-            frames: List[AlignmentFrame] = []
-            frame_duration = 42  # Default 42ms (~24fps)
-            if hasattr(self.parent_app, "settings_manager"):
-                settings = self.parent_app.settings_manager.get_settings(
-                    spritesheet_name, f"{spritesheet_name}/{animation_name}"
-                )
-                # Support both legacy 'fps' and new 'duration' keys
-                if "duration" in settings:
-                    frame_duration = settings.get("duration", 42)
-                elif "fps" in settings:
-                    fps = settings.get("fps", 24)
-                    frame_duration = int(round(1000 / max(1, fps)))
-
-            if spritemap_info:
-                from core.extractor.spritemap import AdobeSpritemapRenderer
-
-                target = spritemap_target or animation_name
-                animation_json = spritemap_info.get("animation_json")
-                spritemap_json = spritemap_info.get("spritemap_json")
-                if not (animation_json and spritemap_json):
-                    raise ValueError("Spritemap metadata is incomplete.")
-                renderer = AdobeSpritemapRenderer(
-                    animation_json,
-                    spritemap_json,
-                    spritesheet_path,
-                    filter_single_frame=True,
-                )
-                raw_frames = renderer.render_animation(target)
-            else:
-                if not metadata_path:
-                    raise ValueError("The selected spritesheet does not have metadata.")
-                from core.extractor.atlas_processor import AtlasProcessor
-                from core.extractor.sprite_processor import SpriteProcessor
-
-                smart = False
-                config = getattr(self.parent_app, "app_config", None)
-                if config:
-                    smart = config.get("interface", {}).get(
-                        "smart_animation_grouping", True
-                    )
-
-                if smart:
-                    atlas_processor = AtlasProcessor(spritesheet_path, metadata_path)
-                    sprite_processor = SpriteProcessor(
-                        atlas_processor.atlas,
-                        atlas_processor.sprites,
-                        smart_animation_grouping=True,
-                    )
-                    all_animations = sprite_processor.process_sprites()
-                    raw_frames = all_animations.get(animation_name, [])
-                else:
-                    atlas_processor = AtlasProcessor(spritesheet_path, metadata_path)
-                    if metadata_path.endswith(".xml"):
-                        animation_sprites = atlas_processor.parse_xml_for_preview(
-                            animation_name
-                        )
-                    elif metadata_path.endswith(".txt"):
-                        animation_sprites = atlas_processor.parse_txt_for_preview(
-                            animation_name
-                        )
-                    else:
-                        animation_sprites = []
-
-                    if not animation_sprites:
-                        return None
-
-                    sprite_processor = SpriteProcessor(
-                        atlas_processor.atlas,
-                        animation_sprites,
-                        smart_animation_grouping=False,
-                    )
-                    processed = sprite_processor.process_specific_animation(
-                        animation_name
-                    )
-                    raw_frames = processed.get(animation_name, [])
-
-            if not raw_frames:
-                return None
-
-            for idx, frame_entry in enumerate(raw_frames):
-                frame_name, pil_image, _meta = frame_entry
-                pil_image = self._ensure_pil_image(pil_image)
-                frame_metadata = self._extract_frame_metadata(_meta)
-                pixmap = self._pil_to_pixmap(pil_image)
-                frames.append(
-                    AlignmentFrame(
-                        name=frame_name,
-                        original_key=frame_name,
-                        pixmap=pixmap,
-                        duration_ms=frame_duration,
-                        metadata=frame_metadata,
-                    )
-                )
-
-            max_w = max(frame.pixmap.width() for frame in frames)
-            max_h = max(frame.pixmap.height() for frame in frames)
-            animation = AlignmentAnimation(
-                display_name=f"{spritesheet_name}/{animation_name}",
-                frames=frames,
-                canvas_width=max_w,
-                canvas_height=max_h,
-                source="extract",
-                spritesheet_name=spritesheet_name,
-                animation_name=animation_name,
-                metadata={
-                    "spritesheet_path": spritesheet_path,
-                    "metadata_path": metadata_path or "",
-                },
+        frame_duration = payload["frame_duration"]
+        frames: List[AlignmentFrame] = []
+        for frame_name, rgba_bytes, width, height, metadata in raw_frames:
+            qimage = QImage(
+                rgba_bytes,
+                width,
+                height,
+                width * 4,
+                QImage.Format.Format_RGBA8888,
             )
-            animation.ensure_canvas_bounds()
-
-            overrides = {}
-            if hasattr(self.parent_app, "settings_manager"):
-                settings = self.parent_app.settings_manager.get_settings(
-                    spritesheet_name, f"{spritesheet_name}/{animation_name}"
+            pixmap = QPixmap.fromImage(qimage.copy())
+            frames.append(
+                AlignmentFrame(
+                    name=frame_name,
+                    original_key=frame_name,
+                    pixmap=pixmap,
+                    duration_ms=frame_duration,
+                    metadata=metadata,
                 )
-                overrides = settings.get("alignment_overrides", {})
+            )
+
+        max_w = max(frame.pixmap.width() for frame in frames)
+        max_h = max(frame.pixmap.height() for frame in frames)
+        animation = AlignmentAnimation(
+            display_name=f"{spritesheet_name}/{animation_name}",
+            frames=frames,
+            canvas_width=max_w,
+            canvas_height=max_h,
+            source="extract",
+            spritesheet_name=spritesheet_name,
+            animation_name=animation_name,
+            metadata={
+                "spritesheet_path": payload["spritesheet_path"],
+                "metadata_path": payload["metadata_path"] or "",
+            },
+        )
+        animation.ensure_canvas_bounds()
+
+        if hasattr(self.parent_app, "settings_manager"):
+            settings = self.parent_app.settings_manager.get_settings(
+                spritesheet_name, f"{spritesheet_name}/{animation_name}"
+            )
+            overrides = settings.get("alignment_overrides", {})
             if overrides:
                 self._apply_alignment_overrides(animation, overrides)
 
-            return animation
-        except Exception as exc:
-            print(
-                f"[EditorTabWidget] Failed to build animation {animation_name}: {exc}"
+        self._register_animation(animation)
+        self.status_label.setText(
+            self.tr("Loaded {animation} from {sheet}.").format(
+                animation=animation_name, sheet=spritesheet_name
             )
-            return None
+        )
+        self._focus_latest_animation()
+
+    def _on_animation_loader_failed(self, error_message: str) -> None:
+        """Notify the user when background loading raises an exception."""
+        self._animation_loader = None
+        self.status_label.setText(self._default_status_text)
+        QMessageBox.warning(
+            self,
+            self.tr(TabTitles.EDITOR),
+            self.tr("Failed to load animation: {error}").format(error=error_message),
+        )
 
     # ------------------------------------------------------------------
     # Animation registration / selection
@@ -2529,8 +2680,9 @@ class EditorTabWidget(BaseTabWidget):
                     composite_definition,
                 )
             except Exception as exc:
-                print(
-                    f"[EditorTabWidget] Failed to register composite in Extract tab: {exc}"
+                logger.exception(
+                    "[EditorTabWidget] Failed to register composite in Extract tab: %s",
+                    exc,
                 )
 
     def _build_alignment_overrides(self, animation: AlignmentAnimation) -> dict:

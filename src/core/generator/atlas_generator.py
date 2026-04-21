@@ -31,6 +31,9 @@ from core.optimizer.texture_compress import TextureCompressor
 from exporters.exporter_registry import ExporterRegistry
 from exporters.exporter_types import GeneratorMetadata
 from utils.version import APP_VERSION
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -330,16 +333,25 @@ class AtlasGenerator:
 
         try:
             self._emit_progress(0, TOTAL, "Loading images...")
+
+            # Throttle per-image messages so we send roughly 20 updates
+            # regardless of frame count. Always emit the first and last.
+            load_emit_interval = max(1, total_images // 20)
+
+            def _on_image_loaded(loaded: int, total: int) -> None:
+                if loaded == total or loaded == 1 or loaded % load_emit_interval == 0:
+                    self._emit_progress(
+                        int(LOAD_WEIGHT * loaded / max(total, 1)),
+                        TOTAL,
+                        f"Loading image {loaded}/{total}...",
+                    )
+
             load_result = self._load_images_with_dedup(
                 animation_groups,
                 trim_sprites=options.trim_sprites,
                 allow_flip=options.allow_flip,
                 export_format=options.export_format,
-                progress_callback=lambda loaded, total: self._emit_progress(
-                    int(LOAD_WEIGHT * loaded / max(total, 1)),
-                    TOTAL,
-                    f"Loading image {loaded}/{total}...",
-                ),
+                progress_callback=_on_image_loaded,
             )
             unique_frames = load_result["unique_frames"]
             images = load_result["images"]
@@ -358,9 +370,16 @@ class AtlasGenerator:
                     f"packing {len(unique_frames)} unique frames"
                 )
 
-            self._emit_progress(
-                LOAD_WEIGHT, TOTAL, f"Packing with {options.algorithm}..."
-            )
+            algorithm_label = options.algorithm
+            if algorithm_label == "auto":
+                pack_status = "Packing with auto (trying all algorithms)..."
+            elif options.heuristic in (None, "auto"):
+                pack_status = (
+                    f"Packing with {algorithm_label} (trying all heuristics)..."
+                )
+            else:
+                pack_status = f"Packing with {algorithm_label} ({options.heuristic})..."
+            self._emit_progress(LOAD_WEIGHT, TOTAL, pack_status)
             pack_result = self._pack_frames(
                 unique_frames,
                 options,
@@ -652,7 +671,7 @@ class AtlasGenerator:
                     images[frame_id] = img
 
                 except Exception as e:
-                    print(f"Warning: Failed to load {path}: {e}")
+                    logger.warning("Failed to load %s: %s", path, e)
 
         return frame_data, images
 
@@ -687,11 +706,17 @@ class AtlasGenerator:
 
             if algorithm == "auto":
                 result = self._pack_with_best_algorithm(
-                    frames, packer_options, options.heuristic
+                    frames,
+                    packer_options,
+                    options.heuristic,
+                    progress_callback=progress_callback,
                 )
             elif options.heuristic == "auto" or options.heuristic is None:
                 result = self._pack_with_best_heuristic(
-                    frames, algorithm, packer_options
+                    frames,
+                    algorithm,
+                    packer_options,
+                    progress_callback=progress_callback,
                 )
             else:
                 packer = get_packer(algorithm, packer_options)
@@ -793,6 +818,7 @@ class AtlasGenerator:
         frames: List[FrameInput],
         options: PackerOptions,
         heuristic_hint: Optional[str] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> PackerResult:
         """Try all algorithms and return the result with best score.
 
@@ -800,6 +826,8 @@ class AtlasGenerator:
             frames: Frames to pack.
             options: Packer options.
             heuristic_hint: Heuristic to use, or "auto"/None to try all.
+            progress_callback: Optional callback(message) used to report
+                each algorithm being tested and the running best result.
 
         Returns:
             PackerResult with the best (smallest) score.
@@ -808,16 +836,32 @@ class AtlasGenerator:
 
         best_result: Optional[PackerResult] = None
         best_score: float = float("inf")
+        best_label: Optional[str] = None
         auto_heuristic = heuristic_hint == "auto" or heuristic_hint is None
 
-        for algo_info in algorithms:
-            algo_name = algo_info.get("name", "")
-            if not algo_name or algo_name == "auto":
-                continue
+        candidates = [
+            info
+            for info in algorithms
+            if info.get("name") and info.get("name") != "auto"
+        ]
+        total = len(candidates)
+
+        for idx, algo_info in enumerate(candidates, start=1):
+            algo_name = algo_info["name"]
+            algo_display = algo_info.get("display_name", algo_name)
+
+            if progress_callback:
+                progress_callback(f"Trying algorithm {idx}/{total}: {algo_display}...")
 
             try:
                 if auto_heuristic:
-                    result = self._pack_with_best_heuristic(frames, algo_name, options)
+                    result = self._pack_with_best_heuristic(
+                        frames,
+                        algo_name,
+                        options,
+                        progress_callback=progress_callback,
+                        algorithm_display=algo_display,
+                    )
                 else:
                     packer = get_packer(algo_name, options)
                     packer.set_heuristic(heuristic_hint)
@@ -832,14 +876,26 @@ class AtlasGenerator:
                 if best_result is None or score < best_score:
                     best_result = result
                     best_score = score
+                    best_label = algo_display
+                    if progress_callback:
+                        progress_callback(
+                            f"Best so far: {algo_display} → "
+                            f"{result.atlas_width}x{result.atlas_height}"
+                        )
 
             except Exception as e:
-                print(f"Warning: Algorithm '{algo_name}' failed: {e}")
+                logger.warning("Algorithm '%s' failed: %s", algo_name, e)
                 continue
 
         if best_result is None:
             packer = get_packer("maxrects", options)
-            return packer.pack(frames)
+            return best_result if best_result else packer.pack(frames)
+
+        if progress_callback and best_label:
+            progress_callback(
+                f"Selected algorithm: {best_label} "
+                f"({best_result.atlas_width}x{best_result.atlas_height})"
+            )
 
         return best_result
 
@@ -848,6 +904,8 @@ class AtlasGenerator:
         frames: List[FrameInput],
         algorithm: str,
         options: PackerOptions,
+        progress_callback: Optional[Callable[[str], None]] = None,
+        algorithm_display: Optional[str] = None,
     ) -> PackerResult:
         """Try all heuristics for an algorithm and return the best result.
 
@@ -855,6 +913,10 @@ class AtlasGenerator:
             frames: Frames to pack.
             algorithm: Algorithm name.
             options: Packer options.
+            progress_callback: Optional callback(message) used to report
+                each heuristic being tested.
+            algorithm_display: Pretty algorithm name to include in progress
+                messages. Defaults to the raw ``algorithm`` argument.
 
         Returns:
             PackerResult with the best (smallest) score.
@@ -862,6 +924,7 @@ class AtlasGenerator:
         from packers import get_heuristics_for_algorithm
 
         heuristics = get_heuristics_for_algorithm(algorithm)
+        algo_label = algorithm_display or algorithm
 
         if not heuristics:
             packer = get_packer(algorithm, options)
@@ -869,8 +932,13 @@ class AtlasGenerator:
 
         best_result: Optional[PackerResult] = None
         best_score: float = float("inf")
+        total = len(heuristics)
 
-        for heuristic_key, _ in heuristics:
+        for idx, (heuristic_key, heuristic_label) in enumerate(heuristics, start=1):
+            if progress_callback:
+                progress_callback(
+                    f"  Testing {algo_label} heuristic {idx}/{total}: {heuristic_label}..."
+                )
             try:
                 packer = get_packer(algorithm, options)
                 packer.set_heuristic(heuristic_key)
@@ -886,7 +954,7 @@ class AtlasGenerator:
                     best_score = score
 
             except Exception as e:
-                print(f"Warning: Heuristic '{heuristic_key}' failed: {e}")
+                logger.warning("Heuristic '%s' failed: %s", heuristic_key, e)
                 continue
 
         if best_result is None:
@@ -1167,7 +1235,7 @@ class AtlasGenerator:
 
             exporter_cls = ExporterRegistry.get_exporter(export_format)
             if not exporter_cls:
-                print(f"Warning: No exporter found for format: {export_format}")
+                logger.warning("No exporter found for format: %s", export_format)
                 return ""
 
             from exporters.exporter_types import ExportOptions
@@ -1215,7 +1283,7 @@ class AtlasGenerator:
             return str(metadata_path)
 
         except Exception as e:
-            print(f"Warning: Failed to save metadata: {e}")
+            logger.exception("Failed to save metadata")
             return ""
 
 
