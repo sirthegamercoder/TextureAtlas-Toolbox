@@ -554,6 +554,7 @@ class GenerateTabWidget(BaseTabWidget):
         self._added_frame_paths = set()
         self.output_path = ""
         self.worker = None
+        self._retired_workers: List[QThread] = []
         self._progress_window = None
         self.animation_groups = {}
         self.atlas_settings = {}
@@ -2512,16 +2513,38 @@ class GenerateTabWidget(BaseTabWidget):
 
         all_frames = [p for paths in animation_groups.values() for p in paths]
 
-        self.worker = GeneratorWorker(
+        # Retire the previous worker (if any) before swapping references.
+        # generation_completed is emitted from inside the worker's run(),
+        # so the previous QThread is still alive at this point. If we
+        # simply overwrite self.worker, Python may GC the old wrapper
+        # before run() returns, and Qt aborts with
+        # "QThread: Destroyed while thread is still running".
+        previous = self.worker
+        if previous is not None:
+            self._retired_workers.append(previous)
+
+        worker = GeneratorWorker(
             all_frames, output_path, self._atlas_settings, self._current_version
         )
-        self.worker.animation_groups = animation_groups
-        self.worker.output_format = self._output_format_key
-        self.worker.progress_updated.connect(self.on_progress_updated)
-        self.worker.generation_completed.connect(self._on_job_completed)
-        self.worker.generation_failed.connect(self._on_job_failed)
+        worker.animation_groups = animation_groups
+        worker.output_format = self._output_format_key
+        worker.progress_updated.connect(self.on_progress_updated)
+        worker.generation_completed.connect(self._on_job_completed)
+        worker.generation_failed.connect(self._on_job_failed)
+        worker.finished.connect(lambda w=worker: self._retire_worker(w))
+        self.worker = worker
         self._current_job_name = job_name
-        self.worker.start()
+        worker.start()
+
+    def _retire_worker(self, worker: "QThread") -> None:
+        """Drop the strong reference to a finished worker and schedule deletion."""
+        try:
+            self._retired_workers.remove(worker)
+        except ValueError:
+            pass
+        if self.worker is worker:
+            self.worker = None
+        worker.deleteLater()
 
     def _build_atlas_settings(self):
         """Collect atlas settings from the current UI state."""
