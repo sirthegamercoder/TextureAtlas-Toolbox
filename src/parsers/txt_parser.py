@@ -78,15 +78,20 @@ class TxtParser(BaseParser):
             file_path: Path to the TXT file.
 
         Returns:
-            ParseResult with parsed sprites and any errors.
+            ParseResult with parsed sprites and any errors. Lines that
+            cannot be parsed (wrong separator, fewer than four integer
+            coordinates, non-integer values) are surfaced as warnings on
+            the result rather than being dropped silently.
         """
         result = ParseResult(file_path=file_path, parser_name=cls.__name__)
 
         try:
-            raw_sprites = cls.parse_txt_packer(file_path)
+            raw_sprites, line_warnings = cls._parse_lines(file_path)
+            for code, message, details in line_warnings:
+                result.add_warning(code, message, details=details)
             validated = cls.validate_sprites(raw_sprites, file_path)
             result.sprites = validated.sprites
-            result.warnings = validated.warnings
+            result.warnings.extend(validated.warnings)
             result.errors = validated.errors
         except ContentError as e:
             result.add_error(e.code, e.message, details=e.details)
@@ -115,6 +120,12 @@ class TxtParser(BaseParser):
     def parse_txt_packer(file_path: str) -> List[Dict[str, Any]]:
         """Parse a TXT file and return raw sprite dicts.
 
+        Malformed lines are skipped silently. Callers that need
+        line-level diagnostics should use :py:meth:`parse_file` (which
+        surfaces warnings on the returned :class:`ParseResult`) or
+        :py:meth:`_parse_lines` (which returns the warning tuples
+        directly).
+
         Args:
             file_path: Path to the TXT file.
 
@@ -124,27 +135,75 @@ class TxtParser(BaseParser):
         Raises:
             FormatError: If the file has no valid sprite definitions.
         """
+        sprites, _warnings = TxtParser._parse_lines(file_path)
+        return sprites
+
+    @staticmethod
+    def _parse_lines(
+        file_path: str,
+    ) -> tuple[List[Dict[str, Any]], List[tuple[ParserErrorCode, str, Dict[str, Any]]]]:
+        """Parse a TXT file into sprite dicts plus per-line diagnostics.
+
+        Args:
+            file_path: Path to the TXT file.
+
+        Returns:
+            A pair ``(sprites, warnings)`` where ``warnings`` is a list
+            of ``(code, message, details)`` tuples describing every
+            line that was skipped because it did not match the
+            ``name = x y w h`` schema. Empty lines and lines that are
+            obviously non-data (no ``" = "``) are not reported.
+
+        Raises:
+            FormatError: If no valid sprite definitions were found.
+        """
         sprites: List[Dict[str, Any]] = []
+        warnings: List[tuple[ParserErrorCode, str, Dict[str, Any]]] = []
 
         with open(file_path, "r", encoding="utf-8") as file:
             for line_num, raw_line in enumerate(file, start=1):
                 line = raw_line.strip()
-                if not line or " = " not in line:
+                if not line:
+                    continue
+                if " = " not in line:
+                    # Pure separator-less lines (comments, blank-ish noise)
+                    # do not warn — they were never intended as sprite data.
                     continue
 
                 parts = line.split(" = ")
                 if len(parts) != 2:
+                    warnings.append(
+                        (
+                            ParserErrorCode.INVALID_FORMAT,
+                            f"Line {line_num}: expected exactly one ' = ' separator",
+                            {"line": line_num, "content": line},
+                        )
+                    )
                     continue
 
                 name = parts[0].strip()
                 coords = parts[1].strip().split()
 
                 if len(coords) < 4:
+                    warnings.append(
+                        (
+                            ParserErrorCode.INVALID_FORMAT,
+                            f"Line {line_num}: expected 4 coordinates (x y w h), got {len(coords)}",
+                            {"line": line_num, "content": line, "coords": coords},
+                        )
+                    )
                     continue
 
                 try:
                     x, y, width, height = map(int, coords[:4])
                 except ValueError:
+                    warnings.append(
+                        (
+                            ParserErrorCode.INVALID_VALUE_TYPE,
+                            f"Line {line_num}: non-integer coordinate in '{' '.join(coords[:4])}'",
+                            {"line": line_num, "content": line, "coords": coords[:4]},
+                        )
+                    )
                     continue
 
                 sprite_data: Dict[str, Any] = {
@@ -168,7 +227,7 @@ class TxtParser(BaseParser):
                 file_path=file_path,
             )
 
-        return sprites
+        return sprites, warnings
 
 
 __all__ = ["TxtParser"]

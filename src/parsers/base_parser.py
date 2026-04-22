@@ -24,6 +24,9 @@ from parsers.parser_types import (
     normalize_sprite,
     validate_sprites,
 )
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class BaseParser(ABC):
@@ -87,15 +90,17 @@ class BaseParser(ABC):
             result = self.__class__.parse_file(self.file_path)
             return [s["name"] for s in result.sprites if s.get("name")]
         except (FileNotFoundError, OSError) as exc:
-            print(
-                f"[{self.__class__.__name__}] Could not read file for "
-                f"raw sprite names: {exc}"
+            logger.warning(
+                "[%s] Could not read file for raw sprite names: %s",
+                self.__class__.__name__,
+                exc,
             )
             return []
         except ParserError as exc:
-            print(
-                f"[{self.__class__.__name__}] Parser error extracting "
-                f"raw sprite names: {exc}"
+            logger.warning(
+                "[%s] Parser error extracting raw sprite names: %s",
+                self.__class__.__name__,
+                exc,
             )
             return []
         except NotImplementedError:

@@ -261,15 +261,22 @@ class ParserRegistry:
             frames = data.get("frames", {})
             if frames:
                 first_frame = next(iter(frames.values()))
-                # UIKit format uses scalar x/y/w/h keys
-                if "x" in first_frame and "y" in first_frame:
-                    for parser in candidates:
-                        if parser.__name__ == "UIKitPlistParser":
-                            return parser
-                # TexturePacker format uses nested frame/sourceSize
-                elif "frame" in first_frame or "textureRect" in first_frame:
+                # TexturePacker classic (v2) uses `frame`; modern (v3)
+                # uses `textureRect`; Cocos2d-x v0/v1 uses scalar
+                # `width`/`height` plus `originalWidth`/`originalHeight`.
+                if (
+                    "frame" in first_frame
+                    or "textureRect" in first_frame
+                    or "width" in first_frame
+                    or "originalWidth" in first_frame
+                ):
                     for parser in candidates:
                         if parser.__name__ == "PlistAtlasParser":
+                            return parser
+                # UIKit format uses scalar `w`/`h` (and `oX`/`oY`)
+                elif "w" in first_frame and "h" in first_frame:
+                    for parser in candidates:
+                        if parser.__name__ == "UIKitPlistParser":
                             return parser
 
         except Exception:

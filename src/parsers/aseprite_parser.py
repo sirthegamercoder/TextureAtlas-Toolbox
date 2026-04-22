@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Parser for Aseprite JSON texture atlas metadata.
+"""Parser for Aseprite JSON sprite-sheet metadata.
 
-Aseprite exports sprite sheets with accompanying JSON metadata that includes:
-    - Frame data with position, size, trimming, and duration.
-    - Frame tags for grouping frames into named animations.
-    - Layer and slice metadata.
+The schema mirrored here is the one Aseprite emits from
+``app/doc_exporter.cpp`` (``createDataFile``) when running
+``aseprite -b ... --sheet sheet.png --data sheet.json`` with one or more
+of ``--list-tags``, ``--list-layers``, ``--list-layer-hierarchy`` and
+``--list-slices``.
+
+Format reference:
+    https://www.aseprite.org/docs/cli/
+    https://github.com/aseprite/aseprite/blob/main/src/app/doc_exporter.cpp
+
+The parser exposes:
+    * Per-sprite frame data on :class:`ParseResult.sprites`.
+    * Format-rich metadata on ``ParseResult.metadata["aseprite"]`` so a
+      matching exporter can round-trip frame tags, layers, and slices
+      without losing information.
 """
 
 from __future__ import annotations
@@ -23,25 +34,265 @@ from parsers.parser_types import (
     ParseResult,
     ParserErrorCode,
 )
+from utils.logger import get_logger
 from utils.utilities import Utilities
+
+logger = get_logger(__name__)
+
+# Canonical animation directions emitted by Aseprite via
+# ``convert_anidir_to_string`` in ``doc/anidir.h``.
+VALID_DIRECTIONS = frozenset({"forward", "reverse", "pingpong", "pingpong_reverse"})
+
+
+def _parse_user_data(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract Aseprite ``userData`` fields from a tag/layer/slice dict.
+
+    Aseprite serializes ``UserData`` as inline keys ``color``, ``data``,
+    and ``properties`` appended to the owning entry (see
+    ``operator<<(std::ostream&, const doc::UserData&)`` in
+    ``doc_exporter.cpp``).
+
+    Args:
+        entry: Raw JSON dict for a tag, layer, or slice.
+
+    Returns:
+        Dict containing only the present user-data fields.
+    """
+    out: Dict[str, Any] = {}
+    color = entry.get("color")
+    if isinstance(color, str) and color:
+        out["color"] = color
+    data = entry.get("data")
+    if isinstance(data, str) and data:
+        out["data"] = data
+    props = entry.get("properties")
+    if isinstance(props, dict) and props:
+        out["properties"] = props
+    return out
+
+
+def _normalize_direction(value: Any) -> str:
+    """Normalize a frame-tag direction string.
+
+    Accepts the four canonical Aseprite values plus the hyphenated
+    spelling ``pingpong-reverse`` that occasionally appears in
+    third-party exporters. Anything else is logged and falls back to
+    ``"forward"``.
+    """
+    if not isinstance(value, str):
+        logger.warning(
+            "[AsepriteParser] Non-string direction %r; defaulting to 'forward'.",
+            value,
+        )
+        return "forward"
+    canonical = value.replace("-", "_").strip().lower()
+    if canonical in VALID_DIRECTIONS:
+        return canonical
+    logger.warning(
+        "[AsepriteParser] Unknown direction %r; defaulting to 'forward'. "
+        "Valid values: %s",
+        value,
+        sorted(VALID_DIRECTIONS),
+    )
+    return "forward"
+
+
+def _parse_frame_tag(tag: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a raw ``frameTags`` entry into a normalized dict.
+
+    Aseprite emits ``repeat`` as a JSON string (``"\"repeat\": \"3\""``)
+    and only when the value is greater than zero. This helper coerces
+    it back to an int. ``repeat`` of ``0`` (and a missing field) both
+    mean "loop indefinitely".
+    """
+    out: Dict[str, Any] = {
+        "name": str(tag.get("name", "")),
+        "from": int(tag.get("from", 0)),
+        "to": int(tag.get("to", 0)),
+        "direction": _normalize_direction(tag.get("direction", "forward")),
+    }
+    repeat_val = tag.get("repeat")
+    if repeat_val is not None and repeat_val != "":
+        try:
+            out["repeat"] = int(repeat_val)
+        except (TypeError, ValueError):
+            logger.warning(
+                "[AsepriteParser] Invalid 'repeat' %r on tag %r; ignoring.",
+                repeat_val,
+                out["name"],
+            )
+    out.update(_parse_user_data(tag))
+    return out
+
+
+def _parse_layer(layer: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a raw ``layers`` entry into a normalized dict.
+
+    Captures every documented layer field (``name``, ``group``,
+    ``opacity``, ``blendMode``, user data, ``cels``).
+    """
+    out: Dict[str, Any] = {"name": str(layer.get("name", ""))}
+    group = layer.get("group")
+    if isinstance(group, str):
+        out["group"] = group
+    if "opacity" in layer:
+        try:
+            out["opacity"] = int(layer["opacity"])
+        except (TypeError, ValueError):
+            pass
+    blend_mode = layer.get("blendMode")
+    if isinstance(blend_mode, str):
+        out["blendMode"] = blend_mode
+    out.update(_parse_user_data(layer))
+    cels = layer.get("cels")
+    if isinstance(cels, list):
+        parsed_cels: List[Dict[str, Any]] = []
+        for cel in cels:
+            if not isinstance(cel, dict):
+                continue
+            cel_out: Dict[str, Any] = {"frame": int(cel.get("frame", 0))}
+            if "opacity" in cel:
+                try:
+                    cel_out["opacity"] = int(cel["opacity"])
+                except (TypeError, ValueError):
+                    pass
+            if "zIndex" in cel:
+                try:
+                    cel_out["zIndex"] = int(cel["zIndex"])
+                except (TypeError, ValueError):
+                    pass
+            cel_out.update(_parse_user_data(cel))
+            parsed_cels.append(cel_out)
+        if parsed_cels:
+            out["cels"] = parsed_cels
+    return out
+
+
+def _parse_rect(value: Any) -> Optional[Dict[str, int]]:
+    """Coerce a ``{x,y,w,h}`` dict (or ``{x,y,width,height}``) into ints."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        return {
+            "x": int(value.get("x", 0)),
+            "y": int(value.get("y", 0)),
+            "w": int(value.get("w", value.get("width", 0))),
+            "h": int(value.get("h", value.get("height", 0))),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_slice_key(key: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Convert a slice key entry (one row of ``slices[].keys[]``)."""
+    if not isinstance(key, dict):
+        return None
+    try:
+        frame = int(key.get("frame", 0))
+    except (TypeError, ValueError):
+        return None
+    bounds = _parse_rect(key.get("bounds"))
+    if bounds is None:
+        return None
+    out: Dict[str, Any] = {"frame": frame, "bounds": bounds}
+    center = _parse_rect(key.get("center"))
+    if center is not None:
+        out["center"] = center
+    pivot = key.get("pivot")
+    if isinstance(pivot, dict):
+        try:
+            out["pivot"] = {
+                "x": int(pivot.get("x", 0)),
+                "y": int(pivot.get("y", 0)),
+            }
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def _parse_slice(slc: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a raw ``slices`` entry into a normalized dict."""
+    out: Dict[str, Any] = {"name": str(slc.get("name", ""))}
+    out.update(_parse_user_data(slc))
+    keys_raw = slc.get("keys")
+    keys: List[Dict[str, Any]] = []
+    if isinstance(keys_raw, list):
+        for raw_key in keys_raw:
+            parsed = _parse_slice_key(raw_key)
+            if parsed is not None:
+                keys.append(parsed)
+    out["keys"] = keys
+    return out
+
+
+def _build_aseprite_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the ``ParseResult.metadata['aseprite']`` block."""
+    block: Dict[str, Any] = {}
+    for key in ("app", "version", "image", "format", "scale"):
+        if key in meta:
+            block[key] = meta[key]
+    size = meta.get("size")
+    if isinstance(size, dict):
+        try:
+            block["size"] = {
+                "w": int(size.get("w", 0)),
+                "h": int(size.get("h", 0)),
+            }
+        except (TypeError, ValueError):
+            pass
+
+    raw_tags = meta.get("frameTags")
+    if isinstance(raw_tags, list):
+        block["frame_tags"] = [
+            _parse_frame_tag(tag) for tag in raw_tags if isinstance(tag, dict)
+        ]
+
+    raw_layers = meta.get("layers")
+    if isinstance(raw_layers, list):
+        block["layers"] = [
+            _parse_layer(layer) for layer in raw_layers if isinstance(layer, dict)
+        ]
+
+    raw_slices = meta.get("slices")
+    if isinstance(raw_slices, list):
+        block["slices"] = [
+            _parse_slice(slc) for slc in raw_slices if isinstance(slc, dict)
+        ]
+
+    return block
 
 
 class AsepriteParser(BaseParser):
-    """Parse Aseprite JSON atlas files with frame tag support.
+    """Parse Aseprite JSON atlas files with full metadata fidelity.
 
-    Aseprite's JSON export format uses a hash-style frames dictionary
-    with additional metadata including:
-        - Per-frame duration for variable-speed animations.
-        - Frame tags for grouping frames into named animations.
-        - Layer and slice information.
+    Per :file:`src/app/doc_exporter.cpp`, the JSON document has the shape::
 
-    The parser can extract either:
-        - Animation names from frame tags (for UI population).
-        - Individual sprite names with trailing digits stripped.
-        - Full sprite data with duration for extraction.
+        {
+          "frames": { name: { frame, rotated, trimmed, spriteSourceSize,
+                              sourceSize, duration }, ... } | [...],
+          "meta": { app, version, image, format, size, scale,
+                    frameTags?, layers?, slices? }
+        }
+
+    Both hash-style (``json-hash``) and array-style (``json-array``)
+    frames containers are accepted; ``json-array`` entries are expected
+    to carry a ``filename`` attribute as Aseprite emits it.
+
+    .. note:: Rotation direction.
+        Aseprite's own packer never rotates samples (every frame is
+        emitted with ``rotated: false``), but the JSON schema is
+        inherited from TexturePacker and the ``rotated`` field is read
+        verbatim. When ``rotated`` is ``True`` the convention used
+        throughout this toolbox (and across the wider TexturePacker
+        ecosystem) is that the sample in the atlas image was rotated
+        **90° clockwise** relative to its source frame, so
+        ``frame.w`` / ``frame.h`` describe the *post-rotation* slot
+        and ``sourceSize`` / ``spriteSourceSize`` describe the
+        unrotated source. To restore the original orientation a
+        consumer rotates the sample 90° **counter-clockwise**.
 
     Attributes:
-        FILE_EXTENSIONS: Supported file extensions (.json).
+        FILE_EXTENSIONS: Supported file extensions (``.json``).
     """
 
     FILE_EXTENSIONS = (".json",)
@@ -75,15 +326,30 @@ class AsepriteParser(BaseParser):
         """
         data = self._load_json()
 
-        # Try to get names from frame tags first (preferred for animations)
         meta = data.get("meta", {})
         frame_tags = meta.get("frameTags", [])
         if frame_tags:
-            return {tag.get("name", "") for tag in frame_tags if tag.get("name")}
+            return {
+                tag.get("name", "")
+                for tag in frame_tags
+                if isinstance(tag, dict) and tag.get("name")
+            }
 
-        # Fall back to frame names with digits stripped
-        frames: Dict[str, Dict[str, Any]] = data.get("frames", {})
-        return {Utilities.strip_trailing_digits(name) for name in frames.keys()}
+        names = self._frame_names(data.get("frames", {}))
+        return {Utilities.strip_trailing_digits(name) for name in names}
+
+    @staticmethod
+    def _frame_names(frames: Any) -> List[str]:
+        """Return the ordered list of frame filenames."""
+        if isinstance(frames, dict):
+            return list(frames.keys())
+        if isinstance(frames, list):
+            return [
+                str(entry.get("filename", ""))
+                for entry in frames
+                if isinstance(entry, dict) and entry.get("filename")
+            ]
+        return []
 
     def _load_json(self) -> Dict[str, Any]:
         """Load and parse the JSON file.
@@ -125,20 +391,24 @@ class AsepriteParser(BaseParser):
         meta = data.get("meta", {})
         app = meta.get("app", "")
 
-        # Check for Aseprite app marker
-        if cls.ASEPRITE_APP_MARKER in app.lower():
+        if isinstance(app, str) and cls.ASEPRITE_APP_MARKER in app.lower():
             return True
 
-        # Check for Aseprite-specific metadata patterns
         # Aseprite always includes frameTags (even if empty) and layers
+        # when --list-tags / --list-layers were used.
         if "frameTags" in meta and "layers" in meta:
             return True
 
-        # Check if frames have duration (Aseprite-specific)
+        # Fall back to the per-frame ``duration`` field that Aseprite
+        # always emits (it is required by the JSON sheet schema).
         frames = data.get("frames", {})
         if isinstance(frames, dict) and frames:
             first_frame = next(iter(frames.values()))
-            if "duration" in first_frame:
+            if isinstance(first_frame, dict) and "duration" in first_frame:
+                return True
+        elif isinstance(frames, list) and frames:
+            first_frame = frames[0]
+            if isinstance(first_frame, dict) and "duration" in first_frame:
                 return True
 
         return False
@@ -146,27 +416,41 @@ class AsepriteParser(BaseParser):
     @classmethod
     def parse_from_frames(
         cls,
-        frames: Dict[str, Dict[str, Any]],
+        frames: Any,
         meta: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        """Convert Aseprite frames hash to normalized sprite list.
+        """Convert Aseprite frames container to a normalized sprite list.
 
         Args:
-            frames: Dictionary mapping sprite names to frame metadata.
-            meta: Optional metadata dict with frameTags for animation info.
+            frames: Either a dict (``json-hash``) or list (``json-array``)
+                of frame entries as emitted by Aseprite.
+            meta: Optional metadata dict with ``frameTags`` for
+                animation lookup.
 
         Returns:
             List of normalized sprite dicts with Aseprite-specific fields.
         """
         sprites: List[Dict[str, Any]] = []
-
-        # Build frame tag lookup if available
-        frame_tags: List[Dict[str, Any]] = []
+        normalized_tags: List[Dict[str, Any]] = []
         if meta:
-            frame_tags = meta.get("frameTags", [])
+            raw_tags = meta.get("frameTags", [])
+            if isinstance(raw_tags, list):
+                normalized_tags = [
+                    _parse_frame_tag(tag) for tag in raw_tags if isinstance(tag, dict)
+                ]
 
-        # Get ordered list of frame names (Aseprite exports in order)
-        for idx, (filename, entry) in enumerate(frames.items()):
+        if isinstance(frames, dict):
+            ordered_entries = list(frames.items())
+        elif isinstance(frames, list):
+            ordered_entries = [
+                (str(entry.get("filename", f"frame_{i}")), entry)
+                for i, entry in enumerate(frames)
+                if isinstance(entry, dict)
+            ]
+        else:
+            return sprites
+
+        for idx, (filename, entry) in enumerate(ordered_entries):
             frame = entry.get("frame", {})
             sprite_source = entry.get("spriteSourceSize", {})
             source_size = entry.get("sourceSize", {})
@@ -204,13 +488,16 @@ class AsepriteParser(BaseParser):
                 "duration": duration,
             }
 
-            # Find which animation tag this frame belongs to
-            for tag in frame_tags:
-                tag_from = tag.get("from", 0)
-                tag_to = tag.get("to", 0)
-                if tag_from <= idx <= tag_to:
-                    sprite_data["animation_tag"] = tag.get("name", "")
-                    sprite_data["animation_direction"] = tag.get("direction", "forward")
+            for tag in normalized_tags:
+                if tag["from"] <= idx <= tag["to"]:
+                    sprite_data["animation_tag"] = tag["name"]
+                    sprite_data["animation_direction"] = tag["direction"]
+                    if "repeat" in tag:
+                        sprite_data["animation_repeat"] = tag["repeat"]
+                    if "color" in tag:
+                        sprite_data["animation_color"] = tag["color"]
+                    if "data" in tag:
+                        sprite_data["animation_data"] = tag["data"]
                     break
 
             sprites.append(sprite_data)
@@ -225,7 +512,9 @@ class AsepriteParser(BaseParser):
             file_path: Path to the JSON file.
 
         Returns:
-            ParseResult with sprites, warnings, and errors.
+            ParseResult with sprites, warnings, and (when present)
+            ``metadata['aseprite']`` carrying frame tags, layers, and
+            slices for round-trip use by :class:`AsepriteExporter`.
 
         Raises:
             FileError: If the file cannot be read.
@@ -250,7 +539,6 @@ class AsepriteParser(BaseParser):
                 file_path=file_path,
             )
 
-        # Validate structure
         frames = data.get("frames")
         if frames is None:
             raise FormatError(
@@ -259,33 +547,34 @@ class AsepriteParser(BaseParser):
                 file_path=file_path,
             )
 
-        if not isinstance(frames, dict):
+        if not isinstance(frames, (dict, list)):
             raise FormatError(
                 ParserErrorCode.INVALID_FORMAT,
-                "Expected 'frames' to be a dictionary (hash format)",
+                "Expected 'frames' to be either a dict (json-hash) or list (json-array)",
                 file_path=file_path,
             )
 
         meta = data.get("meta", {})
+        if not isinstance(meta, dict):
+            meta = {}
 
-        # Parse frames
         raw_sprites = cls.parse_from_frames(frames, meta)
 
-        # Validate and normalize sprites
         for raw_sprite in raw_sprites:
             try:
                 normalized = cls.normalize_sprite(raw_sprite)
-                # Preserve Aseprite-specific fields
-                if "duration" in raw_sprite:
-                    normalized["duration"] = raw_sprite["duration"]
-                if "animation_tag" in raw_sprite:
-                    normalized["animation_tag"] = raw_sprite["animation_tag"]
-                if "animation_direction" in raw_sprite:
-                    normalized["animation_direction"] = raw_sprite[
-                        "animation_direction"
-                    ]
-                if "trimmed" in raw_sprite:
-                    normalized["trimmed"] = raw_sprite["trimmed"]
+                # Preserve Aseprite-specific per-sprite fields
+                for extra in (
+                    "duration",
+                    "trimmed",
+                    "animation_tag",
+                    "animation_direction",
+                    "animation_repeat",
+                    "animation_color",
+                    "animation_data",
+                ):
+                    if extra in raw_sprite:
+                        normalized[extra] = raw_sprite[extra]
                 result.sprites.append(normalized)
             except Exception as e:
                 result.add_error(
@@ -294,11 +583,15 @@ class AsepriteParser(BaseParser):
                     sprite_name=raw_sprite.get("name", "unknown"),
                 )
 
-        # Add metadata as warnings for informational purposes
-        if "frameTags" in meta and meta["frameTags"]:
-            tag_names = [t.get("name", "") for t in meta["frameTags"]]
+        # Attach the rich metadata block so an exporter can round-trip it.
+        aseprite_meta = _build_aseprite_metadata(meta)
+        if aseprite_meta:
+            result.metadata = {"aseprite": aseprite_meta}
+
+        if aseprite_meta.get("frame_tags"):
+            tag_names = [t.get("name", "") for t in aseprite_meta["frame_tags"]]
             result.add_warning(
-                ParserErrorCode.UNKNOWN_ERROR,  # Using as info marker
+                ParserErrorCode.UNKNOWN_ERROR,  # Used as info marker
                 f"Found {len(tag_names)} animation tags: {', '.join(tag_names)}",
             )
 
@@ -308,7 +601,7 @@ class AsepriteParser(BaseParser):
     def parse_json_data(file_path: str) -> List[Dict[str, Any]]:
         """Parse an Aseprite JSON file and return sprite metadata.
 
-        Legacy method for compatibility with base parser interface.
+        Legacy method retained for the base parser interface.
 
         Args:
             file_path: Path to the JSON file.
@@ -330,7 +623,10 @@ class AsepriteParser(BaseParser):
             file_path: Path to the JSON file.
 
         Returns:
-            List of frame tag dicts with name, from, to, direction, color.
+            List of normalized frame-tag dicts. Each entry contains
+            ``name``, ``from``, ``to``, ``direction``, and (when present
+            in the source) ``repeat``, ``color``, ``data``,
+            ``properties``.
         """
         try:
             with open(file_path, "r", encoding="utf-8") as json_file:
@@ -354,7 +650,10 @@ class AsepriteParser(BaseParser):
                 file_path=file_path,
             ) from exc
         meta = data.get("meta", {})
-        return meta.get("frameTags", [])
+        raw_tags = meta.get("frameTags", []) if isinstance(meta, dict) else []
+        if not isinstance(raw_tags, list):
+            return []
+        return [_parse_frame_tag(tag) for tag in raw_tags if isinstance(tag, dict)]
 
     @classmethod
     def get_animation_frames(
@@ -369,7 +668,8 @@ class AsepriteParser(BaseParser):
             animation_name: Name of the animation tag.
 
         Returns:
-            List of sprite dicts for frames in the specified animation.
+            List of sprite dicts for frames in the specified animation,
+            in the order the tag spans them.
         """
         try:
             with open(file_path, "r", encoding="utf-8") as json_file:
@@ -395,67 +695,84 @@ class AsepriteParser(BaseParser):
 
         meta = data.get("meta", {})
         frames = data.get("frames", {})
-        frame_tags = meta.get("frameTags", [])
+        raw_tags = meta.get("frameTags", []) if isinstance(meta, dict) else []
+        if not isinstance(raw_tags, list):
+            return []
 
-        # Find the matching tag
         target_tag = None
-        for tag in frame_tags:
-            if tag.get("name") == animation_name:
-                target_tag = tag
+        for tag in raw_tags:
+            if isinstance(tag, dict) and tag.get("name") == animation_name:
+                target_tag = _parse_frame_tag(tag)
                 break
 
         if not target_tag:
             return []
 
-        # Get frame indices
-        from_idx = target_tag.get("from", 0)
-        to_idx = target_tag.get("to", 0)
+        from_idx = target_tag["from"]
+        to_idx = target_tag["to"]
 
-        # Get ordered frame list
-        frame_list = list(frames.items())
-        animation_frames = []
+        if isinstance(frames, dict):
+            frame_list = list(frames.items())
+        elif isinstance(frames, list):
+            frame_list = [
+                (str(entry.get("filename", f"frame_{i}")), entry)
+                for i, entry in enumerate(frames)
+                if isinstance(entry, dict)
+            ]
+        else:
+            return []
+
+        animation_frames: List[Dict[str, Any]] = []
 
         for idx in range(from_idx, to_idx + 1):
-            if idx < len(frame_list):
-                filename, entry = frame_list[idx]
-                frame = entry.get("frame", {})
-                sprite_source = entry.get("spriteSourceSize", {})
-                source_size = entry.get("sourceSize", {})
+            if idx >= len(frame_list):
+                break
+            filename, entry = frame_list[idx]
+            frame = entry.get("frame", {})
+            sprite_source = entry.get("spriteSourceSize", {})
+            source_size = entry.get("sourceSize", {})
 
-                try:
-                    frame_x = int(frame.get("x", 0))
-                    frame_y = int(frame.get("y", 0))
-                    frame_w = int(frame.get("w", 0))
-                    frame_h = int(frame.get("h", 0))
-                    source_x = int(sprite_source.get("x", 0))
-                    source_y = int(sprite_source.get("y", 0))
-                    source_w = int(source_size.get("w", frame_w))
-                    source_h = int(source_size.get("h", frame_h))
-                    duration = int(entry.get("duration", 100))
-                except (TypeError, ValueError) as exc:
-                    raise ContentError(
-                        ParserErrorCode.INVALID_COORDINATE,
-                        f"Non-numeric coordinate in sprite '{filename}': {exc}",
-                    )
+            try:
+                frame_x = int(frame.get("x", 0))
+                frame_y = int(frame.get("y", 0))
+                frame_w = int(frame.get("w", 0))
+                frame_h = int(frame.get("h", 0))
+                source_x = int(sprite_source.get("x", 0))
+                source_y = int(sprite_source.get("y", 0))
+                source_w = int(source_size.get("w", frame_w))
+                source_h = int(source_size.get("h", frame_h))
+                duration = int(entry.get("duration", 100))
+            except (TypeError, ValueError) as exc:
+                raise ContentError(
+                    ParserErrorCode.INVALID_COORDINATE,
+                    f"Non-numeric coordinate in sprite '{filename}': {exc}",
+                )
 
-                sprite_data = {
-                    "name": filename,
-                    "x": frame_x,
-                    "y": frame_y,
-                    "width": frame_w,
-                    "height": frame_h,
-                    "frameX": -source_x,
-                    "frameY": -source_y,
-                    "frameWidth": source_w,
-                    "frameHeight": source_h,
-                    "rotated": bool(entry.get("rotated", False)),
-                    "duration": duration,
-                    "animation_tag": animation_name,
-                    "animation_direction": target_tag.get("direction", "forward"),
-                }
-                animation_frames.append(sprite_data)
+            sprite_data: Dict[str, Any] = {
+                "name": filename,
+                "x": frame_x,
+                "y": frame_y,
+                "width": frame_w,
+                "height": frame_h,
+                "frameX": -source_x,
+                "frameY": -source_y,
+                "frameWidth": source_w,
+                "frameHeight": source_h,
+                "rotated": bool(entry.get("rotated", False)),
+                "trimmed": bool(entry.get("trimmed", False)),
+                "duration": duration,
+                "animation_tag": animation_name,
+                "animation_direction": target_tag["direction"],
+            }
+            if "repeat" in target_tag:
+                sprite_data["animation_repeat"] = target_tag["repeat"]
+            if "color" in target_tag:
+                sprite_data["animation_color"] = target_tag["color"]
+            if "data" in target_tag:
+                sprite_data["animation_data"] = target_tag["data"]
+            animation_frames.append(sprite_data)
 
         return animation_frames
 
 
-__all__ = ["AsepriteParser"]
+__all__ = ["AsepriteParser", "VALID_DIRECTIONS"]

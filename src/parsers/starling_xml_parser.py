@@ -29,7 +29,14 @@ import xml.etree.ElementTree as ET
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from parsers.base_parser import BaseParser
-from parsers.parser_types import FileError, FormatError, ParserErrorCode
+from parsers.parser_types import (
+    FileError,
+    FormatError,
+    ParseResult,
+    ParserError,
+    ParserErrorCode,
+    normalize_sprite,
+)
 from utils.utilities import Utilities
 
 
@@ -132,11 +139,15 @@ class StarlingXmlParser(BaseParser):
                 xml_root: The root element containing SubTexture children.
 
         Returns:
-                List of sprite dicts with position, dimension, and rotation data.
+                List of sprite dicts with position, dimension, rotation,
+                pivot, and flip data. Optional Starling 2.x ``pivotX`` /
+                ``pivotY`` and HaxeFlixel ``flipX`` / ``flipY`` attributes
+                are surfaced when present so they survive a load / save
+                cycle through the matching exporter.
         """
         sprites = []
         for sprite in xml_root.findall("SubTexture"):
-            sprite_data = {
+            sprite_data: Dict[str, Any] = {
                 "name": sprite.get("name"),
                 "x": int(sprite.get("x", 0)),
                 "y": int(sprite.get("y", 0)),
@@ -148,6 +159,27 @@ class StarlingXmlParser(BaseParser):
                 "frameHeight": int(sprite.get("frameHeight", sprite.get("height", 0))),
                 "rotated": sprite.get("rotated", "false") == "true",
             }
+
+            pivot_x = sprite.get("pivotX")
+            pivot_y = sprite.get("pivotY")
+            if pivot_x is not None:
+                try:
+                    sprite_data["pivotX"] = float(pivot_x)
+                except ValueError:
+                    pass
+            if pivot_y is not None:
+                try:
+                    sprite_data["pivotY"] = float(pivot_y)
+                except ValueError:
+                    pass
+
+            flip_x = sprite.get("flipX")
+            flip_y = sprite.get("flipY")
+            if flip_x is not None:
+                sprite_data["flipX"] = flip_x == "true"
+            if flip_y is not None:
+                sprite_data["flipY"] = flip_y == "true"
+
             sprites.append(sprite_data)
         return sprites
 
@@ -185,3 +217,85 @@ class StarlingXmlParser(BaseParser):
             )
         xml_root = tree.getroot()
         return StarlingXmlParser.parse_from_root(xml_root)
+
+    @classmethod
+    def parse_file(cls, file_path: str) -> ParseResult:
+        """Parse a Starling/Sparrow XML file with full root metadata.
+
+        Captures the root ``<TextureAtlas>`` attributes (`imagePath`,
+        Sparrow v1 `format`, Starling 2.x `scale`) into
+        `ParseResult.metadata["starling"]` so the matching exporter can
+        round-trip them. Sprite-level pivot and flip attributes are
+        carried on each sprite dict by `parse_from_root`.
+
+        Args:
+            file_path: Absolute path to the Starling/Sparrow XML file.
+
+        Returns:
+            ParseResult with normalised sprites and a `metadata["starling"]`
+            block containing the root attributes.
+
+        Raises:
+            FileError: If the file is missing or unreadable.
+            FormatError: If the XML is invalid or not a TextureAtlas root.
+        """
+        result = ParseResult(file_path=file_path, parser_name=cls.__name__)
+        try:
+            tree = ET.parse(file_path)
+        except FileNotFoundError:
+            raise FileError(
+                ParserErrorCode.FILE_NOT_FOUND,
+                f"File not found: {file_path}",
+                file_path=file_path,
+            )
+        except OSError as exc:
+            raise FileError(
+                ParserErrorCode.FILE_READ_ERROR,
+                str(exc),
+                file_path=file_path,
+            )
+        except ET.ParseError as exc:
+            raise FormatError(
+                ParserErrorCode.INVALID_FORMAT,
+                f"Invalid XML: {exc}",
+                file_path=file_path,
+            )
+
+        xml_root = tree.getroot()
+        if xml_root.tag != "TextureAtlas":
+            raise FormatError(
+                ParserErrorCode.INVALID_FORMAT,
+                f"Expected <TextureAtlas> root, got <{xml_root.tag}>",
+                file_path=file_path,
+            )
+
+        scale_attr = xml_root.get("scale")
+        scale_value: Optional[float]
+        try:
+            scale_value = float(scale_attr) if scale_attr is not None else None
+        except ValueError:
+            scale_value = None
+
+        result.metadata = {
+            "starling": {
+                "image_path": xml_root.get("imagePath"),
+                "format": xml_root.get("format"),
+                "scale": scale_value,
+            }
+        }
+
+        for raw_sprite in cls.parse_from_root(xml_root):
+            try:
+                normalized = normalize_sprite(raw_sprite)
+            except ParserError as exc:
+                result.add_warning(
+                    ParserErrorCode.INVALID_VALUE_TYPE,
+                    str(exc),
+                )
+                continue
+            for optional_key in ("pivotX", "pivotY", "flipX", "flipY"):
+                if optional_key in raw_sprite:
+                    normalized[optional_key] = raw_sprite[optional_key]
+            result.sprites.append(normalized)
+
+        return result

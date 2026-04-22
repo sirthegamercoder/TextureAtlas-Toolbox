@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""Parser for Paper2D/Unreal atlas JSON metadata."""
+"""Parser for Paper2D/Unreal atlas JSON metadata.
+
+Paper2D's ``.paper2dsprites`` file is the standard TexturePacker JSON
+hash structure with the ``pivot`` field treated as optional. Some
+Unreal projects ship atlases where pivots are intentionally omitted so
+the importer can fall back to the project default. ``parse_from_frames``
+only attaches ``pivotX`` / ``pivotY`` to a sprite when the source frame
+carried an explicit ``pivot`` block, so the matching exporter's
+``pivot_mode="auto"`` mode can faithfully round-trip both forms.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +19,14 @@ import os
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from parsers.base_parser import BaseParser
-from parsers.parser_types import FileError, FormatError, ParserErrorCode
+from parsers.parser_types import (
+    FileError,
+    FormatError,
+    ParseResult,
+    ParserError,
+    ParserErrorCode,
+    normalize_sprite,
+)
 from utils.utilities import Utilities
 
 
@@ -87,7 +103,12 @@ class Paper2DParser(BaseParser):
             frames: Dictionary mapping sprite names to frame metadata.
 
         Returns:
-            List of normalized sprite dicts with pivot information.
+            List of normalized sprite dicts. ``pivotX`` and ``pivotY``
+            are only present on sprites whose source frame declared a
+            ``pivot`` block, preserving the distinction between
+            "explicit pivot" and "importer default" required for a
+            faithful round-trip with the matching exporter's
+            ``pivot_mode="auto"``.
         """
         sprites: List[Dict[str, Any]] = []
         for filename, entry in frames.items():
@@ -101,7 +122,7 @@ class Paper2DParser(BaseParser):
             source_size = entry.get("sourceSize", {})
             rotated = bool(entry.get("rotated", False))
 
-            sprite_data = {
+            sprite_data: Dict[str, Any] = {
                 "name": filename,
                 "x": frame_x,
                 "y": frame_y,
@@ -112,9 +133,13 @@ class Paper2DParser(BaseParser):
                 "frameWidth": int(source_size.get("w", frame_w)),
                 "frameHeight": int(source_size.get("h", frame_h)),
                 "rotated": rotated,
-                "pivotX": float(entry.get("pivot", {}).get("x", 0.5)),
-                "pivotY": float(entry.get("pivot", {}).get("y", 0.5)),
             }
+
+            pivot = entry.get("pivot")
+            if isinstance(pivot, dict):
+                sprite_data["pivotX"] = float(pivot.get("x", 0.5))
+                sprite_data["pivotY"] = float(pivot.get("y", 0.5))
+
             sprites.append(sprite_data)
         return sprites
 
@@ -132,6 +157,92 @@ class Paper2DParser(BaseParser):
             data = json.load(json_file)
         frames = data.get("frames", {})
         return Paper2DParser.parse_from_frames(frames)
+
+    @classmethod
+    def parse_file(cls, file_path: str) -> ParseResult:
+        """Parse a Paper2D atlas file with full meta-block metadata.
+
+        Captures the source ``meta`` block into
+        ``ParseResult.metadata["paper2d"]["meta"]`` so the matching
+        exporter can round-trip it. Per-sprite ``pivotX`` / ``pivotY``
+        are carried on each sprite dict by :py:meth:`parse_from_frames`,
+        but only when the source frame actually declared a ``pivot``
+        block — sprites whose source frames omitted ``pivot`` come
+        back without the keys, which lets the exporter's
+        ``pivot_mode="auto"`` mode faithfully preserve the original
+        per-frame pivot presence.
+
+        Args:
+            file_path: Absolute path to the ``.paper2dsprites`` file.
+
+        Returns:
+            ParseResult with normalised sprites and a
+            ``metadata["paper2d"]`` block containing ``meta`` and a
+            boolean ``had_pivot_default`` summarising whether at least
+            one source frame carried an explicit pivot.
+
+        Raises:
+            FileError: If the file is missing or unreadable.
+            FormatError: If the JSON is invalid or missing ``frames``.
+        """
+        result = ParseResult(file_path=file_path, parser_name=cls.__name__)
+        try:
+            with open(file_path, "r", encoding="utf-8") as json_file:
+                data = json.load(json_file)
+        except FileNotFoundError:
+            raise FileError(
+                ParserErrorCode.FILE_NOT_FOUND,
+                f"File not found: {file_path}",
+                file_path=file_path,
+            )
+        except (OSError, UnicodeDecodeError) as exc:
+            raise FileError(
+                ParserErrorCode.FILE_READ_ERROR,
+                str(exc),
+                file_path=file_path,
+            )
+        except json.JSONDecodeError as exc:
+            raise FormatError(
+                ParserErrorCode.INVALID_FORMAT,
+                f"Invalid JSON: {exc}",
+                file_path=file_path,
+            )
+
+        frames = data.get("frames")
+        if not isinstance(frames, dict):
+            raise FormatError(
+                ParserErrorCode.INVALID_FORMAT,
+                "Paper2D atlas requires a 'frames' object mapping name -> frame data",
+                file_path=file_path,
+            )
+
+        meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+        had_pivot = any(
+            isinstance(entry, dict) and isinstance(entry.get("pivot"), dict)
+            for entry in frames.values()
+        )
+        result.metadata = {
+            "paper2d": {
+                "meta": dict(meta),
+                "had_pivot_default": had_pivot,
+            }
+        }
+
+        for raw_sprite in cls.parse_from_frames(frames):
+            try:
+                normalized = normalize_sprite(raw_sprite)
+            except ParserError as exc:
+                result.add_warning(
+                    ParserErrorCode.INVALID_VALUE_TYPE,
+                    str(exc),
+                )
+                continue
+            for optional_key in ("pivotX", "pivotY"):
+                if optional_key in raw_sprite:
+                    normalized[optional_key] = raw_sprite[optional_key]
+            result.sprites.append(normalized)
+
+        return result
 
 
 __all__ = ["Paper2DParser"]

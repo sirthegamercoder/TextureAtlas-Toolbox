@@ -49,25 +49,25 @@ for your project or troubleshooting import issues in game engines.
 
 | Format            | Extension            | Rotation | Trimming | Pivot | Animation | Engine/Framework                  |
 | ----------------- | -------------------- | :------: | :------: | :---: | :-------: | --------------------------------- |
-| Starling XML      | `.xml`               |    ✅    |    ✅    |  ✅   |    ❌     | Starling, HaxeFlixel, OpenFL      |
-| Sparrow XML       | `.xml`               |    ❌    |    ✅    |  ❌   |    ❌     | Sparrow (iOS), legacy Flash       |
-| TexturePacker XML | `.xml`               |    ✅    |    ✅    |  ✅   |    ❌     | Generic, custom engines           |
-| JSON Hash         | `.json`              |    ✅    |    ✅    |  ✅   |    ❌     | Phaser 2, PixiJS, many frameworks |
-| JSON Array        | `.json`              |    ✅    |    ✅    |  ✅   |    ❌     | Phaser 2, PixiJS, CreateJS        |
-| Phaser 3          | `.json`              |    ✅    |    ✅    |  ❌   |    ❌     | Phaser 3                          |
-| Aseprite JSON     | `.json`              |    ✅    |    ✅    |  ❌   |    ✅     | Aseprite, Phaser, Godot           |
-| Egret2D           | `.json`              |    ❌    |    ❌    |  ❌   |    ❌     | Egret2D Engine                    |
-| Godot             | `.tpsheet`, `.tpset` |    ❌    |    ❌    |  ❌   |    ❌     | Godot Engine                      |
-| Spine             | `.atlas`             |    ✅    |    ✅    |  ❌   |    ✅     | Spine, libGDX                     |
-| Simple TXT        | `.txt`               |    ❌    |    ❌    |  ❌   |    ❌     | Custom parsers                    |
-| Unity (TP)        | `.tpsheet`           |    ❌    |    ❌    |  ❌   |    ❌     | Unity (via plugin)                |
-| Cocos2d Plist     | `.plist`             |    ✅    |    ✅    |  ❌   |    ❌     | Cocos2d, SpriteKit                |
-| UIKit Plist       | `.plist`             |    ❌    |    ✅    |  ❌   |    ❌     | iOS UIKit, SpriteKit              |
-| CSS Spritesheet   | `.css`               |    ✅    |    ✅    |  ❌   |    ❌     | Web browsers                      |
-| Paper2D           | `.paper2dsprites`    |    ✅    |    ✅    |  ✅   |    ❌     | Unreal Engine                     |
+| Starling XML      | `.xml`               |    ✓    |    ✓    |  ✓   |    ✗     | Starling, HaxeFlixel, OpenFL      |
+| Sparrow XML       | `.xml`               |    ✗    |    ✓    |  ✗   |    ✗     | Sparrow (iOS), legacy Flash       |
+| TexturePacker XML | `.xml`               |    ✓    |    ✓    |  ✓   |    ✗     | Generic, custom engines           |
+| JSON Hash         | `.json`              |    ✓    |    ✓    |  ✓   |    ✗     | Phaser 2, PixiJS, many frameworks |
+| JSON Array        | `.json`              |    ✓    |    ✓    |  ✓   |    ✗     | Phaser 2, PixiJS, CreateJS        |
+| Phaser 3          | `.json`              |    ✓    |    ✓    |  ✗   |    ✗     | Phaser 3                          |
+| Aseprite JSON     | `.json`              |    ✓    |    ✓    |  ✗   |    ✓     | Aseprite, Phaser, Godot           |
+| Egret2D           | `.json`              |    ✗    |    ✗    |  ✗   |    ✗     | Egret2D Engine                    |
+| Godot             | `.tpsheet`, `.tpset` |    ✗    |    ✗    |  ✗   |    ✗     | Godot Engine                      |
+| Spine             | `.atlas`             |    ✓    |    ✓    |  ✗   |    ✓     | Spine, libGDX                     |
+| Simple TXT        | `.txt`               |    ✗    |    ✗    |  ✗   |    ✗     | Custom parsers                    |
+| Unity (TP)        | `.tpsheet`           |    ✗    |    ✗    |  ✗   |    ✗     | Unity (via plugin)                |
+| Cocos2d Plist     | `.plist`             |    ✓    |    ✓    |  ✗   |    ✗     | Cocos2d, SpriteKit                |
+| UIKit Plist       | `.plist`             |    ✗    |    ✓    |  ✗   |    ✗     | iOS UIKit, SpriteKit              |
+| CSS Spritesheet   | `.css`               |    ✓    |    ✓    |  ✗   |    ✗     | Web browsers                      |
+| Paper2D           | `.paper2dsprites`    |    ✓    |    ✓    |  ✓   |    ✗     | Unreal Engine                     |
 
--   ✅ Supported natively in format
--   ❌ Not supported or ignored
+-   ✓ Supported natively in format
+-   ✗ Not supported or ignored
 
 _Information may be inaccurate on some of these_
 
@@ -109,19 +109,19 @@ adopted by Starling (Flash/AIR). Many 2D frameworks support this format.
 
 | Attribute     | Type    | Required | Description                                              |
 | ------------- | ------- | :------: | -------------------------------------------------------- |
-| `imagePath`   | string  |    ✅    | Filename of the atlas image (on root element)            |
-| `name`        | string  |    ✅    | Unique sprite identifier                                 |
-| `x`           | int     |    ✅    | X position in atlas (pixels)                             |
-| `y`           | int     |    ✅    | Y position in atlas (pixels)                             |
-| `width`       | int     |    ✅    | Sprite width in atlas (pixels)                           |
-| `height`      | int     |    ✅    | Sprite height in atlas (pixels)                          |
-| `frameX`      | int     |    ❌    | Trim offset X (negative = padding was removed from left) |
-| `frameY`      | int     |    ❌    | Trim offset Y (negative = padding was removed from top)  |
-| `frameWidth`  | int     |    ❌    | Original untrimmed width                                 |
-| `frameHeight` | int     |    ❌    | Original untrimmed height                                |
-| `rotated`     | boolean |    ❌    | True if sprite is rotated 90° clockwise (Starling only)  |
-| `pivotX`      | float   |    ❌    | Anchor point X (0.0–1.0, default 0.5) (Starling only)    |
-| `pivotY`      | float   |    ❌    | Anchor point Y (0.0–1.0, default 0.5) (Starling only)    |
+| `imagePath`   | string  |    ✓    | Filename of the atlas image (on root element)            |
+| `name`        | string  |    ✓    | Unique sprite identifier                                 |
+| `x`           | int     |    ✓    | X position in atlas (pixels)                             |
+| `y`           | int     |    ✓    | Y position in atlas (pixels)                             |
+| `width`       | int     |    ✓    | Sprite width in atlas (pixels)                           |
+| `height`      | int     |    ✓    | Sprite height in atlas (pixels)                          |
+| `frameX`      | int     |    ✗    | Trim offset X (negative = padding was removed from left) |
+| `frameY`      | int     |    ✗    | Trim offset Y (negative = padding was removed from top)  |
+| `frameWidth`  | int     |    ✗    | Original untrimmed width                                 |
+| `frameHeight` | int     |    ✗    | Original untrimmed height                                |
+| `rotated`     | boolean |    ✗    | True if sprite is rotated 90° clockwise (Starling only)  |
+| `pivotX`      | float   |    ✗    | Anchor point X (0.0–1.0, default 0.5) (Starling only)    |
+| `pivotY`      | float   |    ✗    | Anchor point Y (0.0–1.0, default 0.5) (Starling only)    |
 
 **Starling-Only Extensions:**
 
@@ -925,17 +925,17 @@ atlas metadata (sprite positions, names, etc.) remains in the chosen metadata fo
 
 | Format       | Block Size | Block Bytes | Alpha | Quality   | Platform                          |
 | ------------ | :--------: | :---------: | :---: | --------- | --------------------------------- |
-| BC1 / DXT1   |    4×4     |    8 B      |  ❌   | Good      | Desktop GPUs (DirectX, Vulkan)    |
-| BC3 / DXT5   |    4×4     |   16 B      |  ✅   | Good      | Desktop GPUs (DirectX, Vulkan)    |
-| BC7          |    4×4     |   16 B      |  ✅   | Excellent | Desktop GPUs (DX11+, Vulkan)      |
-| ETC1         |    4×4     |    8 B      |  ❌   | Fair      | Android (legacy), OpenGL ES 2.0   |
-| ETC2 RGB     |    4×4     |    8 B      |  ❌   | Good      | OpenGL ES 3.0+, Vulkan mobile     |
-| ETC2 RGBA    |    4×4     |   16 B      |  ✅   | Good      | OpenGL ES 3.0+, Vulkan mobile     |
-| ASTC 4×4     |    4×4     |   16 B      |  ✅   | Excellent | Modern mobile, Vulkan, Metal      |
-| ASTC 6×6     |    6×6     |   16 B      |  ✅   | Very good | Modern mobile (smaller file size) |
-| ASTC 8×8     |    8×8     |   16 B      |  ✅   | Good      | Modern mobile (smallest size)     |
-| PVRTC 4bpp   |    4×4     |    8 B      |  ✅   | Fair      | PowerVR GPUs (iOS legacy)         |
-| PVRTC 2bpp   |    8×4     |    8 B      |  ✅   | Low       | PowerVR GPUs (iOS legacy)         |
+| BC1 / DXT1   |    4×4     |    8 B      |  ✗   | Good      | Desktop GPUs (DirectX, Vulkan)    |
+| BC3 / DXT5   |    4×4     |   16 B      |  ✓   | Good      | Desktop GPUs (DirectX, Vulkan)    |
+| BC7          |    4×4     |   16 B      |  ✓   | Excellent | Desktop GPUs (DX11+, Vulkan)      |
+| ETC1         |    4×4     |    8 B      |  ✗   | Fair      | Android (legacy), OpenGL ES 2.0   |
+| ETC2 RGB     |    4×4     |    8 B      |  ✗   | Good      | OpenGL ES 3.0+, Vulkan mobile     |
+| ETC2 RGBA    |    4×4     |   16 B      |  ✓   | Good      | OpenGL ES 3.0+, Vulkan mobile     |
+| ASTC 4×4     |    4×4     |   16 B      |  ✓   | Excellent | Modern mobile, Vulkan, Metal      |
+| ASTC 6×6     |    6×6     |   16 B      |  ✓   | Very good | Modern mobile (smaller file size) |
+| ASTC 8×8     |    8×8     |   16 B      |  ✓   | Good      | Modern mobile (smallest size)     |
+| PVRTC 4bpp   |    4×4     |    8 B      |  ✓   | Fair      | PowerVR GPUs (iOS legacy)         |
+| PVRTC 2bpp   |    8×4     |    8 B      |  ✓   | Low       | PowerVR GPUs (iOS legacy)         |
 
 **Block Size** determines the minimum atlas dimension alignment. When GPU compression is
 active, atlas padding is automatically clamped to at least the block size to prevent
@@ -973,22 +973,22 @@ commonly consumes compressed textures:
 
 | Metadata Format     | GPU Compression | Typical Container |
 | ------------------- | :-------------: | ----------------- |
-| Spine Atlas         |       ✅        | KTX2 or DDS       |
-| Phaser 3            |       ✅        | KTX2 (WebGL)      |
-| JSON Hash           |       ✅        | KTX2 (WebGL)      |
-| JSON Array          |       ✅        | KTX2 (WebGL)      |
-| Cocos2d Plist       |       ✅        | KTX2 or DDS       |
-| Godot Atlas         |       ✅        | DDS or KTX2       |
-| Egret2D             |       ✅        | KTX2              |
-| Paper2D (Unreal)    |       ✅        | DDS               |
-| Unity (TP)          |       ✅        | DDS or KTX2       |
-| Starling XML        |       ❌        | —                 |
-| TexturePacker XML   |       ❌        | —                 |
-| CSS Spritesheet     |       ❌        | —                 |
-| Simple TXT          |       ❌        | —                 |
-| Aseprite JSON       |       ❌        | —                 |
+| Spine Atlas         |       ✓        | KTX2 or DDS       |
+| Phaser 3            |       ✓        | KTX2 (WebGL)      |
+| JSON Hash           |       ✓        | KTX2 (WebGL)      |
+| JSON Array          |       ✓        | KTX2 (WebGL)      |
+| Cocos2d Plist       |       ✓        | KTX2 or DDS       |
+| Godot Atlas         |       ✓        | DDS or KTX2       |
+| Egret2D             |       ✓        | KTX2              |
+| Paper2D (Unreal)    |       ✓        | DDS               |
+| Unity (TP)          |       ✓        | DDS or KTX2       |
+| Starling XML        |       ✗        | —                 |
+| TexturePacker XML   |       ✗        | —                 |
+| CSS Spritesheet     |       ✗        | —                 |
+| Simple TXT          |       ✗        | —                 |
+| Aseprite JSON       |       ✗        | —                 |
 
-Formats marked ❌ are typically used with web browsers, Flash/AIR runtimes, or custom
+Formats marked ✗ are typically used with web browsers, Flash/AIR runtimes, or custom
 engines that do not consume GPU-compressed textures.
 
 ### Compression Backends
@@ -1026,7 +1026,7 @@ They cannot be generated as output formats.
 
 ### Adobe Animate Spritemap
 
-> ⚠️ **EXTRACTION ONLY**  
+> **EXTRACTION ONLY**  
 > TextureAtlas Toolbox can only extract this format. It cannot be used as an output format.
 > Most other tools do not support this format at all for extraction.
 
@@ -1316,24 +1316,24 @@ When a sprite is marked as rotated:
 
 **Formats Supporting Rotation:**
 
--   Starling XML ✅
--   TexturePacker XML ✅
--   JSON Hash/Array ✅
--   Phaser 3 ✅
--   Aseprite JSON ✅
--   Spine ✅
--   Cocos2d Plist ✅
--   Paper2D ✅
--   CSS (via `transform`) ✅
+-   Starling XML ✓
+-   TexturePacker XML ✓
+-   JSON Hash/Array ✓
+-   Phaser 3 ✓
+-   Aseprite JSON ✓
+-   Spine ✓
+-   Cocos2d Plist ✓
+-   Paper2D ✓
+-   CSS (via `transform`) ✓
 
 **Formats Without Rotation:**
 
--   Sparrow XML ❌
--   Egret2D ❌
--   Godot ❌
--   Simple TXT ❌
--   UIKit Plist ❌
--   Unity (TP) ❌
+-   Sparrow XML ✗
+-   Egret2D ✗
+-   Godot ✗
+-   Simple TXT ✗
+-   UIKit Plist ✗
+-   Unity (TP) ✗
 
 ---
 
@@ -1377,10 +1377,10 @@ Expressed as normalized coordinates (0.0 to 1.0).
 
 **Formats Supporting Pivot:**
 
--   Starling XML ✅
--   TexturePacker XML ✅
--   JSON Hash/Array ✅
--   Paper2D ✅
+-   Starling XML ✓
+-   TexturePacker XML ✓
+-   JSON Hash/Array ✓
+-   Paper2D ✓
 
 ---
 
@@ -1431,4 +1431,4 @@ to a standard format like JSON Hash or Starling XML.
 
 ---
 
-_Last updated: December 6, 2025 — TextureAtlas Toolbox v2.0.0_
+_Last updated: April 22, 2026 — TextureAtlas Toolbox v3.0.0_

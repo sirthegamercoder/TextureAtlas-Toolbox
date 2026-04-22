@@ -10,7 +10,14 @@ import os
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from parsers.base_parser import BaseParser
-from parsers.parser_types import FileError, FormatError, ParserErrorCode
+from parsers.parser_types import (
+    FileError,
+    FormatError,
+    ParseResult,
+    ParserError,
+    ParserErrorCode,
+    normalize_sprite,
+)
 from utils.utilities import Utilities
 
 
@@ -123,6 +130,9 @@ class JsonHashAtlasParser(BaseParser):
                 "pivotY": float(entry.get("pivot", {}).get("y", 0.5)),
             }
 
+            if "trimmed" in entry:
+                sprite_data["trimmed"] = bool(entry["trimmed"])
+
             duration = entry.get("duration")
             if duration is not None:
                 sprite_data["duration"] = int(duration)
@@ -187,6 +197,99 @@ class JsonHashAtlasParser(BaseParser):
                         sprite["direction"] = tag["direction"]
 
         return sprites
+
+    @classmethod
+    def parse_file(cls, file_path: str) -> ParseResult:
+        """Parse a JSON hash atlas file with full metadata.
+
+        Captures `meta.frameTags` and the full `meta` block into
+        `ParseResult.metadata["json"]` so the matching exporter can
+        round-trip them. Sprite-level `trimmed` and `duration` are
+        carried on each sprite dict by `parse_from_frames`.
+
+        Args:
+            file_path: Absolute path to the JSON hash file.
+
+        Returns:
+            ParseResult with normalised sprites and a `metadata["json"]`
+            block containing the source meta and frameTags.
+
+        Raises:
+            FileError: If the file is missing or unreadable.
+            FormatError: If the JSON is invalid or missing `frames`.
+        """
+        result = ParseResult(file_path=file_path, parser_name=cls.__name__)
+        try:
+            with open(file_path, "r", encoding="utf-8") as json_file:
+                data = json.load(json_file)
+        except FileNotFoundError:
+            raise FileError(
+                ParserErrorCode.FILE_NOT_FOUND,
+                f"File not found: {file_path}",
+                file_path=file_path,
+            )
+        except (OSError, UnicodeDecodeError) as exc:
+            raise FileError(
+                ParserErrorCode.FILE_READ_ERROR,
+                str(exc),
+                file_path=file_path,
+            )
+        except json.JSONDecodeError as exc:
+            raise FormatError(
+                ParserErrorCode.INVALID_FORMAT,
+                f"Invalid JSON: {exc}",
+                file_path=file_path,
+            )
+
+        frames = data.get("frames")
+        if not isinstance(frames, dict):
+            raise FormatError(
+                ParserErrorCode.INVALID_FORMAT,
+                "JSON hash atlas requires a 'frames' object mapping name -> frame data",
+                file_path=file_path,
+            )
+
+        meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+        result.metadata = {
+            "json": {
+                "meta": dict(meta),
+                "frame_tags": cls.parse_frame_tags(data),
+            }
+        }
+
+        for raw_sprite in cls.parse_from_frames(frames):
+            try:
+                normalized = normalize_sprite(raw_sprite)
+            except ParserError as exc:
+                result.add_warning(
+                    ParserErrorCode.INVALID_VALUE_TYPE,
+                    str(exc),
+                )
+                continue
+            for optional_key in (
+                "pivotX",
+                "pivotY",
+                "trimmed",
+                "duration",
+                "animation",
+                "direction",
+            ):
+                if optional_key in raw_sprite:
+                    normalized[optional_key] = raw_sprite[optional_key]
+            result.sprites.append(normalized)
+
+        tags = result.metadata["json"]["frame_tags"]
+        if tags:
+            sprite_names = list(frames.keys())
+            name_to_index = {name: i for i, name in enumerate(sprite_names)}
+            for tag in tags:
+                for sprite in result.sprites:
+                    idx = name_to_index.get(sprite["name"])
+                    if idx is not None and tag["from"] <= idx <= tag["to"]:
+                        sprite["animation"] = tag["name"]
+                        sprite["direction"] = tag["direction"]
+
+        return result
 
 
 __all__ = ["JsonHashAtlasParser"]

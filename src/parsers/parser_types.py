@@ -186,6 +186,10 @@ class ParseResult:
         errors: Fatal errors for specific sprites (partial failures).
         file_path: Path to the parsed file.
         parser_name: Name of the parser class used.
+        metadata: Optional format-specific metadata block. Parsers that
+            support rich metadata (e.g. Aseprite frame tags, layers, and
+            slices) may attach a dict here so downstream consumers can
+            round-trip the information back through the matching exporter.
         is_valid: True if parsing produced usable sprites.
     """
 
@@ -194,6 +198,7 @@ class ParseResult:
     errors: List[SpriteError] = field(default_factory=list)
     file_path: Optional[str] = None
     parser_name: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
     @property
     def is_valid(self) -> bool:
