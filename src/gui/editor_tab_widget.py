@@ -176,20 +176,61 @@ class AlignmentAnimation:
     origin_mode: str = ORIGIN_MODE_CENTER
     fnf_raw_offsets: Optional[Dict[str, Any]] = None
 
-    def ensure_canvas_bounds(self, respect_existing: bool = False):
+    def ensure_canvas_bounds(
+        self,
+        respect_existing: bool = False,
+        consider_offsets: bool = False,
+    ):
         """Clamp canvas to multiples of 256 so every frame fits comfortably.
 
         Args:
             respect_existing (bool): When ``True`` the method only increases the
                 canvas; otherwise it resets width/height to the new target.
+            consider_offsets (bool): When ``True`` the required canvas size is
+                computed from each frame's bounding rectangle including its
+                ``offset_x``/``offset_y``, interpreted according to
+                ``origin_mode``. When ``False`` (default) only pixmap
+                dimensions are considered, matching the historical behavior
+                used by single-animation load paths and live drag handlers.
         """
         step = 256
         max_side_limit = 4096
         required_side = step
         if self.frames:
-            max_w = max(frame.pixmap.width() for frame in self.frames)
-            max_h = max(frame.pixmap.height() for frame in self.frames)
-            required_side = max(step, max(max_w, max_h))
+            if consider_offsets:
+                if self.origin_mode == ORIGIN_MODE_TOP_LEFT:
+                    # Frames are placed at (offset_x, offset_y) relative to the
+                    # canvas top-left. Span the union from the leftmost/topmost
+                    # frame edge to the rightmost/bottommost. Negative offsets
+                    # contribute to the required size as inward padding.
+                    min_x = min(frame.offset_x for frame in self.frames)
+                    min_y = min(frame.offset_y for frame in self.frames)
+                    max_x = max(
+                        frame.offset_x + frame.pixmap.width() for frame in self.frames
+                    )
+                    max_y = max(
+                        frame.offset_y + frame.pixmap.height() for frame in self.frames
+                    )
+                    required_w = max_x - min(min_x, 0)
+                    required_h = max_y - min(min_y, 0)
+                else:
+                    # CENTER mode: frames are drawn centered on the canvas
+                    # midpoint and shifted by (offset_x, offset_y). The half-
+                    # extent the canvas must accommodate from center is
+                    # max(half_size + |offset|), so the full side is twice that.
+                    required_w = 2 * max(
+                        (frame.pixmap.width() + 1) // 2 + abs(frame.offset_x)
+                        for frame in self.frames
+                    )
+                    required_h = 2 * max(
+                        (frame.pixmap.height() + 1) // 2 + abs(frame.offset_y)
+                        for frame in self.frames
+                    )
+                required_side = max(step, required_w, required_h)
+            else:
+                max_w = max(frame.pixmap.width() for frame in self.frames)
+                max_h = max(frame.pixmap.height() for frame in self.frames)
+                required_side = max(step, max(max_w, max_h))
         target_side = ((required_side + step - 1) // step) * step
         target_side = min(max_side_limit, target_side)
 
@@ -781,6 +822,11 @@ class EditorTabWidget(BaseTabWidget):
         self._tree_reorder_filter: Optional[QObject] = None
         self._multi_drag_baselines: Optional[Dict[str, Tuple[int, int]]] = None
         self._animation_loader: Optional[EditorAnimationLoaderWorker] = None
+        # Queued add_animation_from_extractor() requests that arrived while a
+        # previous load was still running. Drained one-by-one as each worker
+        # finishes (success or failure) so multi-select / "send all" paths
+        # don't silently drop anything past the first item.
+        self._pending_animation_requests: List[Dict[str, Any]] = []
         self._default_status_text = self.tr(
             "Drag the frame, use arrow keys for fine adjustments, or type offsets manually."
         )
@@ -806,6 +852,7 @@ class EditorTabWidget(BaseTabWidget):
         self.load_files_button = ui.load_files_button
         self.remove_animation_button = ui.remove_animation_button
         self.combine_button = ui.combine_button
+        self.combine_all_button = ui.combine_all_button
 
         self.canvas_holder = ui.canvas_holder
         self.canvas_scroll = ui.canvas_scroll
@@ -909,6 +956,10 @@ class EditorTabWidget(BaseTabWidget):
         self.combine_button.setToolTip(self.tr(Tooltips.COMBINE_SELECTED))
         self.combine_button.setEnabled(False)
         button_row.addWidget(self.combine_button)
+        self.combine_all_button = QPushButton(self.tr(ButtonLabels.COMBINE_ALL))
+        self.combine_all_button.setToolTip(self.tr(Tooltips.COMBINE_ALL))
+        self.combine_all_button.setEnabled(False)
+        button_row.addWidget(self.combine_all_button)
         lists_layout.addLayout(button_row)
 
         splitter.addWidget(lists_widget)
@@ -1092,6 +1143,7 @@ class EditorTabWidget(BaseTabWidget):
         self.load_files_button.clicked.connect(self._load_manual_files)
         self.remove_animation_button.clicked.connect(self._remove_selected_animation)
         self.combine_button.clicked.connect(self._combine_selected_animations)
+        self.combine_all_button.clicked.connect(self._combine_all_animations)
         self.offset_x_spin.valueChanged.connect(self._on_manual_offset_changed)
         self.offset_y_spin.valueChanged.connect(self._on_manual_offset_changed)
         self.apply_all_button.clicked.connect(self._apply_offsets_to_all_frames)
@@ -1233,13 +1285,21 @@ class EditorTabWidget(BaseTabWidget):
         self._apply_origin_mode(ORIGIN_MODE_TOP_LEFT, persist=True, reason="fnf-import")
 
     def _update_combine_button_state(self):
-        """Enable the combine button only when 2+ top-level animations selected."""
+        """Refresh the enable state of both Combine buttons.
+
+        Combine Selected requires 2+ top-level animations to be selected.
+        Combine All requires 2+ top-level animations to exist at all.
+        """
         selected_top_levels = [
             item
             for item in self.animation_tree.selectedItems()
             if item.parent() is None
         ]
         self.combine_button.setEnabled(len(selected_top_levels) >= 2)
+        if hasattr(self, "combine_all_button"):
+            self.combine_all_button.setEnabled(
+                self.animation_tree.topLevelItemCount() >= 2
+            )
         # Changing selection invalidates any cached multi-drag baselines.
         self._multi_drag_baselines = None
 
@@ -1596,8 +1656,24 @@ class EditorTabWidget(BaseTabWidget):
         sees a status update indicating the load is busy).
         """
         if self._animation_loader is not None and self._animation_loader.isRunning():
+            # Queue the request; it will be dispatched from the loader's
+            # finished/failed handler so callers (e.g. multi-select context
+            # menu actions) can submit a batch in a tight loop without losing
+            # any items past the first.
+            self._pending_animation_requests.append(
+                {
+                    "spritesheet_name": spritesheet_name,
+                    "animation_name": animation_name,
+                    "spritesheet_path": spritesheet_path,
+                    "metadata_path": metadata_path,
+                    "spritemap_info": spritemap_info,
+                    "spritemap_target": spritemap_target,
+                }
+            )
             self.status_label.setText(
-                self.tr("Already loading an animation, please wait...")
+                self.tr("Loading animation, {count} more queued...").format(
+                    count=len(self._pending_animation_requests)
+                )
             )
             return
 
@@ -1727,6 +1803,7 @@ class EditorTabWidget(BaseTabWidget):
             )
         )
         self._focus_latest_animation()
+        self._dispatch_next_pending_animation_request()
 
     def _on_animation_loader_failed(self, error_message: str) -> None:
         """Notify the user when background loading raises an exception."""
@@ -1737,6 +1814,21 @@ class EditorTabWidget(BaseTabWidget):
             self.tr(TabTitles.EDITOR),
             self.tr("Failed to load animation: {error}").format(error=error_message),
         )
+        self._dispatch_next_pending_animation_request()
+
+    def _dispatch_next_pending_animation_request(self) -> None:
+        """Pop and run the next queued animation load, if any.
+
+        Used to drain the FIFO populated by ``add_animation_from_extractor``
+        when callers (e.g. the right-click "Add to Editor" action across a
+        multi-selection) submit several requests while a worker is busy.
+        """
+        if self._animation_loader is not None and self._animation_loader.isRunning():
+            return
+        if not self._pending_animation_requests:
+            return
+        request = self._pending_animation_requests.pop(0)
+        self.add_animation_from_extractor(**request)
 
     # ------------------------------------------------------------------
     # Animation registration / selection
@@ -1832,7 +1924,41 @@ class EditorTabWidget(BaseTabWidget):
                 self.tr("Select at least two animations to build a composite entry."),
             )
             return
+        self._build_composite_from_items(selected_items)
 
+    def _combine_all_animations(self):
+        """Build a composite entry containing every loaded top-level animation.
+
+        Useful after importing FNF character data so the user can verify
+        alignment across every imported pose in a single canvas.
+        """
+        items = [
+            self.animation_tree.topLevelItem(idx)
+            for idx in range(self.animation_tree.topLevelItemCount())
+        ]
+        items = [item for item in items if item is not None]
+        if len(items) < 2:
+            QMessageBox.information(
+                self,
+                self.tr(DialogTitles.NEED_MORE_ANIMATIONS),
+                self.tr("Load at least two animations before combining them all."),
+            )
+            return
+        self._build_composite_from_items(items, label_override=self.tr("All Poses"))
+
+    def _build_composite_from_items(
+        self,
+        selected_items: List[QTreeWidgetItem],
+        label_override: Optional[str] = None,
+    ):
+        """Create a composite ``AlignmentAnimation`` from the given tree items.
+
+        Args:
+            selected_items: Top-level animation tree items to combine.
+            label_override: Optional explicit display name for the resulting
+                composite. When ``None``, a name is derived from the source
+                animation names (or "Composite (N animations)" beyond 3).
+        """
         combined_frames: List[AlignmentFrame] = []
         composite_sources: List[str] = []
         source_animation_ids: List[str] = []
@@ -1897,7 +2023,9 @@ class EditorTabWidget(BaseTabWidget):
             )
             return
 
-        if len(composite_sources) > 3:
+        if label_override:
+            display_name = label_override
+        elif len(composite_sources) > 3:
             display_name = self.tr("Composite ({count} animations)").format(
                 count=len(composite_sources)
             )
@@ -1906,8 +2034,12 @@ class EditorTabWidget(BaseTabWidget):
                 names=", ".join(composite_sources)
             )
 
-        canvas_width = min(4096, max(8, (max_frame_width or 256) * 2))
-        canvas_height = min(4096, max(8, (max_frame_height or 256) * 2))
+        # Provisional canvas; ensure_canvas_bounds() below recomputes the final
+        # size from the union bounding box of every frame's pixmap *and* its
+        # per-frame offset, so combined FNF poses with non-zero offsets are
+        # not clipped at the canvas edge.
+        canvas_width = max(8, max_frame_width or 256)
+        canvas_height = max(8, max_frame_height or 256)
 
         composite_animation = AlignmentAnimation(
             display_name=display_name,
@@ -1939,7 +2071,7 @@ class EditorTabWidget(BaseTabWidget):
                 composite_animation.metadata["source_metadata_path"] = (
                     base_metadata_path
                 )
-        composite_animation.ensure_canvas_bounds()
+        composite_animation.ensure_canvas_bounds(consider_offsets=True)
         self._register_animation(composite_animation)
         self.status_label.setText(
             self.tr("Composite entry created with {count} frames.").format(
@@ -2662,7 +2794,7 @@ class EditorTabWidget(BaseTabWidget):
                 animation.default_offset[1] + translate_y,
             ),
         )
-        exported_animation.ensure_canvas_bounds()
+        exported_animation.ensure_canvas_bounds(consider_offsets=True)
         new_animation_id = self._register_animation(exported_animation)
         self.status_label.setText(
             self.tr("Exported composite to {name}.").format(

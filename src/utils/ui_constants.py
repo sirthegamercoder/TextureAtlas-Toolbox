@@ -686,6 +686,10 @@ class Tooltips:
     COMBINE_SELECTED = (
         "Create a composite entry from all selected animations for group alignment"
     )
+    COMBINE_ALL = (
+        "Combine every loaded animation into one composite entry\n"
+        "(useful for verifying alignment across all FNF poses at once)"
+    )
 
     # Optimizer tooltips
     OPTIMIZER_PRESET = (
@@ -812,6 +816,7 @@ class ButtonLabels:
     # Editor tab buttons
     LOAD_ANIMATION_FILES = "Load Animation Files"
     COMBINE_SELECTED = "Combine Selected"
+    COMBINE_ALL = "Combine All"
     RESET_ZOOM = "Reset Zoom"
     CENTER_VIEW = "Center View"
     FIT_CANVAS = "Fit Canvas"

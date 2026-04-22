@@ -647,6 +647,12 @@ class Ui_TextureAtlasToolboxApp(object):
 
         self.editor_button_row.addWidget(self.combine_button)
 
+        self.combine_all_button = QPushButton(self.editor_lists_widget)
+        self.combine_all_button.setObjectName("combine_all_button")
+        self.combine_all_button.setEnabled(False)
+
+        self.editor_button_row.addWidget(self.combine_all_button)
+
         self.editor_lists_layout.addLayout(self.editor_button_row)
 
         self.editor_outer_splitter.addWidget(self.editor_lists_widget)
@@ -1620,6 +1626,9 @@ class Ui_TextureAtlasToolboxApp(object):
         )
         self.combine_button.setText(
             QCoreApplication.translate("TextureAtlasToolboxApp", "Combine", None)
+        )
+        self.combine_all_button.setText(
+            QCoreApplication.translate("TextureAtlasToolboxApp", "Combine All", None)
         )
         self.zoom_out_button.setText(
             QCoreApplication.translate("TextureAtlasToolboxApp", "-", None)

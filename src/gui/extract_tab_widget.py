@@ -2163,9 +2163,12 @@ class ExtractTabWidget(BaseTabWidget):
                     break
 
             editor_action = QAction(_trc(MenuActions.ADD_TO_EDITOR), self)
+            # Send just the right-clicked animation (matches the list view's
+            # per-animation behavior). The sheet-level "send all" path is
+            # exposed via right-clicking the parent spritesheet row instead.
             editor_action.triggered.connect(
-                lambda checked=False: self.open_spritesheets_in_editor(
-                    self.listbox_png.selectedItems()
+                lambda checked=False: self.open_selected_animations_in_editor(
+                    self.listbox_data.selectedItems()
                 )
             )
             menu.addAction(editor_action)
@@ -3142,6 +3145,36 @@ class ExtractTabWidget(BaseTabWidget):
             if item:
                 spritesheet_list.append(item.text())
         return spritesheet_list
+
+    def get_spritesheet_path_map(self):
+        """Map each loaded spritesheet's display name to its absolute path.
+
+        The display name is what appears in the listbox (and matches the
+        keys of ``parent_app.data_dict``); the absolute path is the
+        on-disk location originally registered with ``add_item``. This
+        mapping is required for the extractor whenever the input source
+        spans multiple directories (drag and drop of a folder + loose
+        files, manual file picker), because in those cases the input
+        directory label is a UI string such as
+        ``"Mixed sources (4 items)"`` rather than a real path.
+
+        Returns:
+            ``{display_name: absolute_path}`` for every entry in the list
+            that has a non-empty path stored under ``UserRole``.
+        """
+
+        from PySide6.QtCore import Qt
+
+        path_map = {}
+        for i in range(self.listbox_png.count()):
+            item = self.listbox_png.item(i)
+            if not item:
+                continue
+            display = item.text()
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(data, str) and data:
+                path_map[display] = data
+        return path_map
 
     def check_for_unknown_atlases(self, spritesheet_list):
         """Identify spritesheets lacking any recognized metadata file.
