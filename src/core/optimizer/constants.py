@@ -247,6 +247,11 @@ class OptimizeOptions:
     texture_format: str | None = None
     texture_container: str = "dds"
     generate_mipmaps: bool = False
+    # Compute alpha-weighted SSIM after quantization. Disabled by default
+    # because the metric is expensive (re-decodes both files into float
+    # arrays and runs box-filter convolutions across every channel —
+    # multi-GB peak memory and several seconds per 4K atlas).
+    compute_ssim: bool = False
 
 
 @dataclass

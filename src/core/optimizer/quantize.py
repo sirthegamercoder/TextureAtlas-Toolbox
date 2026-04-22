@@ -27,6 +27,86 @@ from core.optimizer.dither import (
 LogFn = Callable[[str], None]
 
 
+def _restore_alpha(
+    quantized: Image.Image,
+    alpha: Image.Image,
+    log: Optional[LogFn] = None,
+) -> Image.Image:
+    """Re-attach an alpha channel using the smallest viable PNG mode.
+
+    PNG file size depends heavily on bit depth:
+
+    * Fully opaque alpha → ``P`` mode (1 byte/pixel).
+    * Binary alpha (only 0/255 values) → ``P`` mode + ``tRNS`` chunk
+      (still 1 byte/pixel; the chunk costs ≤256 bytes).
+    * Graded alpha → ``RGBA`` (4 bytes/pixel) is unavoidable.
+
+    Forcing ``RGBA`` for opaque/binary cases — which the original
+    implementation did — quadrupled the pixel data and discarded the
+    palette compression entirely, often producing a *larger* file than
+    the source. This helper avoids that regression.
+
+    Args:
+        quantized: Result of palette quantization (``P`` mode).
+        alpha: The original ``L``-mode alpha channel.
+        log: Optional logging callback.
+
+    Returns:
+        Either a ``P``-mode image (with optional ``transparency`` info)
+        or an ``RGBA`` image when the alpha is genuinely graded.
+    """
+    if quantized.mode != "P":
+        # Defensive: caller should have ensured P mode, but we still
+        # have something we can attach alpha to.
+        result = quantized.convert("RGBA")
+        result.putalpha(alpha)
+        return result
+
+    alpha_arr = np.asarray(alpha, dtype=np.uint8)
+
+    # Fully opaque — drop alpha entirely.
+    if alpha_arr.size == 0 or bool((alpha_arr == 255).all()):
+        if log:
+            log("[ImageOptimizer]   alpha: fully opaque, saving as palette PNG")
+        return quantized
+
+    # Binary alpha — preserve as palette PNG with a tRNS chunk.
+    is_binary = bool(((alpha_arr == 0) | (alpha_arr == 255)).all())
+    if is_binary:
+        pal_arr = np.array(quantized, dtype=np.uint8)
+        used = np.unique(pal_arr)
+        if used.size < 256:
+            transparent_idx = int(next(i for i in range(256) if i not in used))
+        else:
+            # Palette already saturated; reuse the most common index among
+            # transparent source pixels so the choice does not introduce
+            # new color artifacts in opaque regions.
+            transp_mask = alpha_arr == 0
+            if not transp_mask.any():
+                return quantized
+            transparent_idx = int(np.bincount(pal_arr[transp_mask]).argmax())
+
+        pal_arr[alpha_arr == 0] = transparent_idx
+        new_p = Image.fromarray(pal_arr, mode="P")
+        palette = quantized.getpalette()
+        if palette is not None:
+            new_p.putpalette(palette)
+        new_p.info["transparency"] = transparent_idx
+        if log:
+            log(
+                "[ImageOptimizer]   alpha: binary, saving as palette PNG "
+                f"with tRNS index {transparent_idx}"
+            )
+        return new_p
+
+    # Graded alpha — RGBA is the only lossless representation.
+    if log:
+        log("[ImageOptimizer]   alpha: graded, falling back to RGBA save")
+    result = quantized.convert("RGBA")
+    result.putalpha(alpha)
+    return result
+
+
 def quantize_pillow(
     img: Image.Image,
     options: OptimizeOptions,
@@ -219,9 +299,7 @@ def quantize_with_method(
 
     # --- Step 3: restore alpha ---
     if alpha is not None:
-        result = quantized.convert("RGBA")
-        result.putalpha(alpha)
-        return result
+        return _restore_alpha(quantized, alpha, log=log)
 
     return quantized
 
@@ -274,11 +352,17 @@ def quantize_pngquant(
     if log:
         log("[ImageOptimizer]   pngquant: premultiplying alpha")
 
-    arr = np.asarray(img).astype(np.float32)
-    alpha = arr[:, :, 3:4] / 255.0
+    # Allocate a single float32 working buffer (4x the uint8 image size).
+    # We perform all premultiply math in-place to avoid a second full-size
+    # intermediate from np.clip(...).astype(uint8), which would otherwise
+    # double peak RAM (e.g. ~256 MB extra on a 4096x4096 RGBA atlas).
+    # np.asarray with a different dtype always allocates a new buffer.
+    arr = np.asarray(img, dtype=np.float32)
+    alpha = arr[:, :, 3:4] * (1.0 / 255.0)
 
     arr[:, :, :3] *= alpha
-    premul = np.clip(arr, 0, 255).astype(np.uint8)
+    np.clip(arr, 0, 255, out=arr)
+    premul = arr.astype(np.uint8)
     del arr
     try:
         premul_img = Image.fromarray(premul, "RGBA")
@@ -342,25 +426,36 @@ def quantize_pngquant(
     else:
         quantized = palette_img
 
-    # Un-premultiply the palette colours
+    # Un-premultiply the palette colours.
+    # Reuse a single float32 buffer and convert in-place at the end so we
+    # never hold both float32 (~256 MB) and uint8 (~64 MB) full-size copies
+    # of a 4K atlas at the same time.
     result_rgba = quantized.convert("RGBA")
     res_arr = np.array(result_rgba, dtype=np.float32)
 
     # Use the original alpha so edges stay crisp.
-    orig_alpha_arr = np.asarray(orig_alpha).astype(np.float32)
-    safe_alpha = np.maximum(orig_alpha_arr / 255.0, 1.0 / 255.0)
+    orig_alpha_arr = np.asarray(orig_alpha, dtype=np.float32)
+    safe_alpha = np.maximum(orig_alpha_arr * (1.0 / 255.0), 1.0 / 255.0)
     res_arr[:, :, :3] /= safe_alpha[:, :, np.newaxis]
-    res_arr[:, :, :3] = np.clip(res_arr[:, :, :3], 0, 255)
+    np.clip(res_arr[:, :, :3], 0, 255, out=res_arr[:, :, :3])
     res_arr[:, :, 3] = orig_alpha_arr
+    del orig_alpha_arr, safe_alpha
     result_arr = res_arr.astype(np.uint8)
-    try:
-        result = Image.fromarray(result_arr, "RGBA")
-    except TypeError:
-        h, w = result_arr.shape[:2]
-        result = Image.frombytes(
-            "RGBA", (w, h), np.ascontiguousarray(result_arr).tobytes()
-        )
+    del res_arr
 
     if log:
         log("[ImageOptimizer]   pngquant: un-premultiplied, done")
-    return result
+
+    # Re-pack as a palette PNG when alpha is opaque or binary so we keep
+    # the size win from quantization. The un-premultiplied RGB only
+    # contains ~max_colors distinct values among opaque pixels, so this
+    # second quantize is cheap. Graded alpha falls through to RGBA inside
+    # ``_restore_alpha``.
+    rgb_for_palette = Image.fromarray(result_arr[:, :, :3], "RGB")
+    del result_arr
+    palette_only = rgb_for_palette.quantize(
+        colors=options.max_colors,
+        method=quant_method,
+        dither=Image.Dither.NONE,
+    )
+    return _restore_alpha(palette_only, orig_alpha, log=log)

@@ -29,6 +29,9 @@ from core.optimizer.constants import (
 from core.optimizer.dither import wand_dither_string
 from core.optimizer.quality import ssim_from_arrays
 from core.optimizer.quantize import quantize_pillow
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Spritesheets can exceed Pillow's 89-megapixel decompression bomb
 # threshold, so raise the limit to 512 megapixels.
@@ -51,8 +54,8 @@ class ImageOptimizer:
         self._log_callback = log_callback
 
     def _log(self, message: str) -> None:
-        """Write *message* to stdout and to the UI log callback."""
-        print(message)
+        """Write *message* to the application log and any UI log callback."""
+        logger.info("%s", message)
         if self._log_callback:
             self._log_callback(message)
 
@@ -140,12 +143,18 @@ class ImageOptimizer:
                     f"(was {self.format_size(original_size)})"
                 )
 
-                if options.quantize:
+                if options.quantize and options.compute_ssim:
+                    # SSIM is opt-in: it re-decodes both files into large
+                    # float arrays and runs box-filter convolutions over
+                    # every channel. Skipping it by default cuts batch
+                    # runtime roughly in half for quantized atlases.
                     try:
                         orig_img = Image.open(src_path).convert("RGBA")
                         opt_img = Image.open(tmp_path).convert("RGBA")
-                        orig_arr = np.asarray(orig_img, dtype=np.float64)
-                        opt_arr = np.asarray(opt_img, dtype=np.float64)
+                        # float32 halves peak memory vs float64 with no
+                        # measurable accuracy loss for 8-bit input data.
+                        orig_arr = np.asarray(orig_img, dtype=np.float32)
+                        opt_arr = np.asarray(opt_img, dtype=np.float32)
                         ssim_val = ssim_from_arrays(orig_arr, opt_arr)
                         result.ssim = ssim_val
                         self._log(f"[ImageOptimizer]   SSIM: {ssim_val:.4f}")
@@ -347,12 +356,8 @@ class ImageOptimizer:
             f"[ImageOptimizer]   Re-saving through Pillow: "
             f"mode={pil_img.mode}, compress_level={options.compress_level}"
         )
-        pil_img.save(
-            tmp_path,
-            format="PNG",
-            optimize=options.optimize,
-            compress_level=options.compress_level,
-        )
+        save_kwargs = self._build_save_kwargs(pil_img, options)
+        pil_img.save(tmp_path, **save_kwargs)
         pil_img.close()
 
     @staticmethod
@@ -392,6 +397,13 @@ class ImageOptimizer:
             "optimize": options.optimize,
             "compress_level": options.compress_level,
         }
+
+        # Preserve palette transparency (tRNS chunk) for indexed PNGs
+        # built by the alpha-aware quantizer. Without this, P-mode
+        # images with binary alpha would lose their transparent index
+        # on save and read back as fully opaque.
+        if img.mode == "P" and "transparency" in getattr(img, "info", {}):
+            kwargs["transparency"] = img.info["transparency"]
 
         if not options.strip_metadata and hasattr(img, "info"):
             kwargs["pnginfo"] = img.info.get("pnginfo")
