@@ -72,6 +72,9 @@ from utils.resampling import (
     DEFAULT_RESAMPLING_METHOD,
 )
 from utils.translation_manager import translate
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 MAX_FRAMES_IN_MEMORY = 100
 FRAME_CACHE_SIZE = 20
@@ -1084,7 +1087,7 @@ class AnimationPreviewWindow(QDialog):
             self.update_display()
             self.frame_list.select_frame(0)
 
-        print(f"Animation loaded efficiently: {frame_count} frames")
+        logger.info("Animation loaded efficiently: %d frames", frame_count)
 
     def on_processing_error(self, error_message: str):
         """Display an error and re-enable controls on load failure.

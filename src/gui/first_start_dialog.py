@@ -34,6 +34,9 @@ from PySide6.QtGui import QFont, QIcon
 from utils.translation_manager import get_translation_manager, tr as translate
 from utils.ui_constants import ButtonLabels, CheckBoxLabels, WindowTitles
 from utils.version import APP_NAME, APP_VERSION
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Import Qt resources to make icons available
 import resources.icons_rc  # type: ignore  # noqa: F401
@@ -852,8 +855,5 @@ def restart_application():
                 cwd=src_dir,
             )
         except Exception as e:
-            print(
-                f"[FirstStartDialog] Failed to restart application: {e}",
-                file=sys.stderr,
-            )
+            logger.exception("[FirstStartDialog] Failed to restart application: %s", e)
     sys.exit(0)

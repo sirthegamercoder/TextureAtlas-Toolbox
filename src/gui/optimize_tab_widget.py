@@ -53,8 +53,10 @@ from core.optimizer import (
 from gui.base_tab_widget import BaseTabWidget
 from gui.job_progress_window import JobProgressWindow
 from utils.translation_manager import tr as translate
+from utils.logger import get_logger
 from utils.ui_constants import CheckBoxLabels, GroupTitles, Labels, Tooltips
 
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------
 # Worker thread
@@ -92,8 +94,7 @@ class OptimizerWorker(QThread):
 
             error_msg = str(exc) or repr(exc)
             tb_str = traceback.format_exc()
-            print(f"[OptimizerWorker] FATAL: {error_msg}")
-            print(f"[OptimizerWorker] Traceback:\n{tb_str}")
+            logger.exception("[OptimizerWorker] FATAL: %s", error_msg)
             self.optimize_failed.emit(f"{error_msg}\n\n{tb_str}")
 
     def _emit_progress(self, current: int, total: int, filename: str):

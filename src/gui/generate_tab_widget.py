@@ -35,6 +35,10 @@ from utils.utilities import Utilities
 
 # Import the new generator system
 from core.generator import AtlasGenerator, GeneratorOptions, get_available_algorithms
+from exporters.exporter_types import (
+    FORMATS_SUPPORTING_FLIP as SUPPORTED_FLIP_FORMATS,
+    FORMATS_SUPPORTING_ROTATION as SUPPORTED_ROTATION_FORMATS,
+)
 from utils.translation_manager import tr as translate
 from utils.logger import get_logger
 
@@ -46,23 +50,6 @@ from utils.ui_constants import (
     FileDialogTitles,
     FileFilters,
 )
-
-SUPPORTED_ROTATION_FORMATS = frozenset(
-    {
-        "starling-xml",
-        "json-hash",
-        "json-array",
-        "aseprite",
-        "texture-packer-xml",
-        "spine",
-        "phaser3",
-        "plist",
-        "paper2d",
-        "gdx",
-    }
-)
-
-SUPPORTED_FLIP_FORMATS = frozenset({"starling-xml"})
 
 # Formats that support storing trim offset data (frameX/frameY, spriteSourceSize, etc.)
 # These formats can represent trimmed sprites with offset metadata so consumers

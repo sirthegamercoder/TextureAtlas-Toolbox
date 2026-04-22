@@ -23,6 +23,9 @@ from PySide6.QtGui import QFont, QColor, QPainter
 
 from utils.translation_manager import tr as translate
 from utils.ui_constants import ButtonLabels, WindowTitles
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class BackgroundHandlerWindow(QDialog):
@@ -70,12 +73,15 @@ class BackgroundHandlerWindow(QDialog):
                 self.result[detection_result["filename"]] = "exclude_background"
 
         if not self.filtered_results:
-            print("[BackgroundHandlerWindow] No images need background processing")
+            logger.info(
+                "[BackgroundHandlerWindow] No images need background processing"
+            )
             self.accept()
             return
 
-            print(
-                f"[BackgroundHandlerWindow] Filtered to {len(self.filtered_results)} images needing background processing"
+            logger.info(
+                "[BackgroundHandlerWindow] Filtered to %d images needing background processing",
+                len(self.filtered_results),
             )
 
         self.setup_ui()
@@ -335,8 +341,9 @@ class BackgroundHandlerWindow(QDialog):
             Dictionary mapping filenames to processing choices:
             'key_background', 'exclude_background', or '_cancelled'.
         """
-        print(
-            f"[BackgroundHandlerWindow] Called with {len(detection_results)} detection results"
+        logger.info(
+            "[BackgroundHandlerWindow] Called with %d detection results",
+            len(detection_results),
         )
 
         dialog = BackgroundHandlerWindow(parent_window, detection_results)
@@ -346,7 +353,7 @@ class BackgroundHandlerWindow(QDialog):
     @staticmethod
     def reset_batch_state():
         """Reset batch processing state for a new extraction session."""
-        print("[BackgroundHandlerWindow] Batch state reset for new processing")
+        logger.info("[BackgroundHandlerWindow] Batch state reset for new processing")
 
 
 class ColorSampleWidget(QWidget):
