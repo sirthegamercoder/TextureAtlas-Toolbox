@@ -242,7 +242,7 @@ sprite names are keys. This makes runtime lookups O(1) by name.
 		}
 	},
 	"meta": {
-		"app": "TextureAtlas Toolbox",
+		"app": "TextureAtlas Toolbox (3.0.0)",
 		"version": "1.0",
 		"image": "atlas.png",
 		"format": "RGBA8888",
@@ -265,14 +265,14 @@ sprite names are keys. This makes runtime lookups O(1) by name.
 
 **Meta Fields:**
 
-| Field     | Type   | Description                     |
-| --------- | ------ | ------------------------------- |
-| `app`     | string | Generator application name      |
-| `version` | string | Generator version               |
-| `image`   | string | Atlas image filename            |
-| `format`  | string | Pixel format (e.g., "RGBA8888") |
-| `size`    | object | Atlas dimensions: `{w, h}`      |
-| `scale`   | string | Scale factor (e.g., "1", "2")   |
+| Field     | Type   | Description                                                                                       |
+| --------- | ------ | ------------------------------------------------------------------------------------------------- |
+| `app`     | string | Generator application name. Soft-watermarked as `TextureAtlas Toolbox (<version>)` to identify the tool that produced the atlas while leaving `version` free for the schema indicator. |
+| `version` | string | TexturePacker schema version (`"1.0"`). Some loaders (Phaser, PixiJS, Cocos) branch on this value, so it is kept distinct from the toolbox version. |
+| `image`   | string | Atlas image filename                                                                              |
+| `format`  | string | Pixel format (e.g., "RGBA8888")                                                                   |
+| `size`    | object | Atlas dimensions: `{w, h}`                                                                        |
+| `scale`   | string | Scale factor (e.g., "1", "2")                                                                     |
 
 **When to Use:**
 
@@ -367,7 +367,8 @@ Each page is a texture entry containing its own frames array.
 		}
 	],
 	"meta": {
-		"generator": "TextureAtlas Toolbox"
+		"app": "TextureAtlas Toolbox (3.0.0)",
+		"version": "1.0"
 	}
 }
 ```
@@ -378,6 +379,7 @@ Each page is a texture entry containing its own frames array.
 -   Each texture has its own `image`, `size`, and `frames`
 -   `scale` is a number, not a string
 -   No `pivot` field in standard Phaser 3 format
+-   `meta.app` carries the soft watermark; `meta.version` is the TexturePacker schema indicator (kept separate so Phaser/PixiJS loaders can still inspect it)
 
 **When to Use:**
 
@@ -572,7 +574,33 @@ A plain-text format with indented key-value pairs for each sprite.
 -   libGDX
 -   Spine runtimes for Unity, Unreal, Cocos2d-x, etc.
 
-**Structure:**
+**Structure (modern Spine 4.x / libGDX):**
+
+```
+atlas.png
+size: 512, 512
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+walk
+  bounds: 0, 0, 64, 64
+walk
+  bounds: 66, 0, 60, 60
+  offsets: 2, 2, 64, 64
+  index: 1
+walk
+  bounds: 130, 0, 64, 64
+  rotate: 90
+  index: 2
+```
+
+Per the Spine 4.2 reference, the `offsets:`, `rotate:`, and `index:`
+lines are **omitted when carrying their default values** (untrimmed,
+unrotated, ungrouped). The exporter emits the lean form to stay
+byte-identical to official Spine output; the parser still accepts the
+legacy verbose form below.
+
+**Legacy Structure (pre-4.0 / libGDX classic):**
 
 ```
 atlas.png
@@ -587,14 +615,9 @@ walk_01
   orig: 64, 64
   offset: 0, 0
   index: -1
-walk_02
-  rotate: true
-  xy: 66, 0
-  size: 64, 64
-  orig: 64, 64
-  offset: 0, 0
-  index: -1
 ```
+
+Enable the legacy form via `SpineExportOptions(modern_format=False)`.
 
 **Page Header (First Lines):**
 
@@ -607,7 +630,16 @@ walk_02
 | `repeat:` | Texture repeat mode (none, x, y, xy)       |
 | `pma:`    | Premultiplied alpha (optional, true/false) |
 
-**Region Fields (Indented):**
+**Region Fields — Modern (indented under region name):**
+
+| Field      | Emitted when             | Description                                                                |
+| ---------- | ------------------------ | -------------------------------------------------------------------------- |
+| `bounds:`  | always                   | `x, y, w, h` — position and size in atlas (w/h swap if rotated)            |
+| `offsets:` | sprite was trimmed       | `offX, offY, origW, origH` — trim offset and original untrimmed size       |
+| `rotate:`  | rotation ≠ `false`       | `true` (90° cw) or numeric degrees                                         |
+| `index:`   | grouped region (≥ 0)     | Per-region index used by `findRegions()` to group frames into an animation |
+
+**Region Fields — Legacy:**
 
 | Field    | Description                                   |
 | -------- | --------------------------------------------- |

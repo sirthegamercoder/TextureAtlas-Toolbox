@@ -102,17 +102,17 @@ Release date: **TBD**
 
 ##### Atlas improvements
 - **Aseprite**: parser/exporter rewritten to spec; full round-trip of frameTags, layers, slices, and per-sprite duration; new strict-aseprite and json-array modes; rotation direction (90° CW) now documented in code
-- **Spine / libGDX .atlas**: rewritten to spec, both formats share one codepath; round-trips page metadata, modern and legacy region layouts, ninepatch data, custom name/value pairs, and multi-page atlases
+- **Spine / libGDX .atlas**: rewritten to spec, both formats share one codepath; round-trips page metadata, modern and legacy region layouts, ninepatch data, custom name/value pairs, and multi-page atlases. Modern emit omits `offsets:`, `rotate:`, and `index:` lines whose values are defaults (untrimmed / unrotated / `index = -1`), matching the Spine 4.2 reference byte-for-byte.
 - **Adobe Animate spritemaps**: now reads every sibling spritemap*.json page (stock + BTA overflow); BTA extension auto-detected; ASI references cross-linked with unresolved names recorded as warnings
 - **Starling / Sparrow XML**: parser reads every documented SubTexture attribute including HaxeFlixel flipX/flipY; exporter gains pivot-propagation across animation strips for the Starling MovieClip convention
-- **JSON Hash / JSON Array**: new parse_file captures full meta block and frameTags; exporters can emit per-frame durations, frame tags, and arbitrary extra meta (related_multi_packs, smartupdate, etc.)
+- **JSON Hash / JSON Array**: new parse_file captures full meta block and frameTags; exporters can emit per-frame durations, frame tags, and arbitrary extra meta (related_multi_packs, smartupdate, etc.). Soft watermark now lives in `meta.app` (`TextureAtlas Toolbox (<version>)`) so `meta.version` can keep carrying the TexturePacker schema version (`"1.0"`) that Phaser/PixiJS/Cocos loaders inspect.
 - **Unity .tpsheet**: parser reads optional pivot columns and surfaces format/texture/size headers; exporter gains pivot_mode (always/never/auto) so a five-column source round-trips back to five columns
 - **CSS exporter**: trim now encoded via background-position (SpriteSmith/sprity/Glue convention); rotation uses transform-origin: 0 0 + translateY to stay in layout slot; legacy modes still selectable; round-trip comment read back by CSS parser
 - **TexturePacker XML**: parser captures root metadata and per-file attribute style; conflicting n/name pairs and unrecognised r= values now warn instead of disappearing; exporter chooses between short and long attribute names
 - **Paper2D**: pivot is now conditional via pivot_mode (always/never/auto); a no-pivot atlas round-trips back to no-pivot; parser only attaches per-sprite pivots when the source frame declared one
 - **TXT parser**: malformed lines now surface as warnings with line number and content instead of being dropped silently; legacy silent-skip helper preserved for compat
 - **CSS parser**: reads transform: rotate markers and SpriteSmith/Glue/sprity margin trim offsets; long-form background-image + background-position accepted alongside the shorthand
-- **Phaser 3**: rewritten to spec; all three schema variants (multi-atlas, JSONArray, JSONHash) are first-class with auto-detection, per-page tagging, and pivot/anchor decoding
+- **Phaser 3**: rewritten to spec; all three schema variants (multi-atlas, JSONArray, JSONHash) are first-class with auto-detection, per-page tagging, and pivot/anchor decoding. `meta.app`/`meta.version` watermark mirrors the JSON Hash convention rather than overwriting the schema indicator.
 - **TexturePacker plist (Cocos2d-x)**: rewritten to spec; auto-detects all four format versions; aliases and polygon-mesh data round-trip losslessly; page metadata captured; name.png.png doubling bug fixed
 
 ##### Dependencies
