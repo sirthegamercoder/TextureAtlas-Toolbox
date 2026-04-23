@@ -56,13 +56,16 @@ class PlistExportOptions:
         strict_spec: When True, suppress the non-spec
             `generator:`/`packer:`/`heuristic:`/`efficiency:` metadata
             fields some downstream tools reject.
-        append_png_extension: When True (the v2 default for legacy
-            Cocos2d compatibility), append `.png` to frame keys that
-            do not already carry a known image extension. v3 leaves
-            keys untouched by default since aliases handle naming.
+        append_png_extension: When True (the TexturePacker / Cocos2D
+            default), append `.png` to frame keys that do not already
+            carry a known image extension. Cocos2D's `SpriteFrameCache`
+            looks frames up by their on-disk filename, so the extension
+            is part of the canonical key. Defaults to True for all
+            format versions; pass False only when a downstream pipeline
+            keys frames by bare basename.
     """
 
-    use_binary: bool = True
+    use_binary: bool = False
     format_version: int = 3
     include_metadata: bool = True
     pixel_format: str = "RGBA8888"
@@ -150,7 +153,11 @@ class PlistExporter(BaseExporter):
 
         append_ext = opts.append_png_extension
         if append_ext is None:
-            append_ext = version == 2
+            # TexturePacker / Cocos2D writes frame keys with the source
+            # extension included by default for every plist version, so
+            # treat that as the spec-conformant default. Callers can
+            # opt out by setting append_png_extension=False.
+            append_ext = True
 
         frames: Dict[str, Dict[str, Any]] = {}
         for packed in packed_sprites:

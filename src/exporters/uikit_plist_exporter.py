@@ -50,10 +50,12 @@ class UIKitPlistExportOptions:
 
     Attributes:
         use_binary: Output binary plist (True) or XML plist (False).
+            Defaults to XML, matching what Xcode and asset-catalog
+            tooling expect when the plist is hand-edited or diffed.
         include_metadata: Include metadata dict with texture info.
     """
 
-    use_binary: bool = True
+    use_binary: bool = False
     include_metadata: bool = True
 
 
