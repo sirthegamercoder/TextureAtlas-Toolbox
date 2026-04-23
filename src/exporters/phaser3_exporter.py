@@ -39,6 +39,7 @@ from exporters.exporter_types import (
     GeneratorMetadata,
     PackedSprite,
 )
+from utils.version import APP_VERSION
 
 
 @dataclass
@@ -313,16 +314,22 @@ class Phaser3Exporter(BaseExporter):
         if opts.related_multi_packs:
             meta["related_multi_packs"] = list(opts.related_multi_packs)
 
-        if not opts.strict_spec and generator_metadata:
-            if generator_metadata.app_version:
-                meta["app"] = "TextureAtlas Toolbox"
-                meta["version"] = generator_metadata.app_version
-            if generator_metadata.packer:
-                meta["packer"] = generator_metadata.packer
-            if generator_metadata.heuristic:
-                meta["heuristic"] = generator_metadata.heuristic
-            if generator_metadata.efficiency > 0:
-                meta["efficiency"] = int(round(generator_metadata.efficiency))
+        if not opts.strict_spec:
+            # Soft watermark: identify this app via meta.app and keep
+            # meta.version free for the schema/format version that some
+            # Phaser/PixiJS loaders inspect.
+            toolbox_version = APP_VERSION
+            if generator_metadata and generator_metadata.app_version:
+                toolbox_version = generator_metadata.app_version
+            meta["app"] = f"TextureAtlas Toolbox ({toolbox_version})"
+            meta["version"] = "1.0"
+            if generator_metadata:
+                if generator_metadata.packer:
+                    meta["packer"] = generator_metadata.packer
+                if generator_metadata.heuristic:
+                    meta["heuristic"] = generator_metadata.heuristic
+                if generator_metadata.efficiency > 0:
+                    meta["efficiency"] = int(round(generator_metadata.efficiency))
 
         return meta
 

@@ -43,6 +43,10 @@ from exporters.exporter_types import (
     GeneratorMetadata,
     PackedSprite,
 )
+from utils.version import APP_VERSION
+
+
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tga")
 
 
 @dataclass
@@ -55,7 +59,18 @@ class JsonArrayExportOptions:
         format_string: Pixel format string for meta block (e.g., "RGBA8888").
         scale_string: Scale string for meta block (e.g., "1").
         app_name: Application name for meta.app field.
-        app_version: Application version for meta.version field.
+        app_name: Identifier written to ``meta.app``. The TextureAtlas
+            Toolbox version is appended in parentheses as a soft watermark
+            so downstream consumers can identify the producing tool while
+            ``meta.version`` continues to carry the TexturePacker schema
+            version (which Phaser / PixiJS / Cocos may inspect).
+        app_version: TexturePacker schema version written to
+            ``meta.version``. Defaults to ``"1.0"`` to match TexturePacker's
+            current default JSON output.
+        append_extension: When True (the TexturePacker default that Phaser /
+            PixiJS / Cocos Creator all expect), append `.png` to the
+            per-frame `filename` field when it does not already carry a
+            known image extension.
         emit_durations: When True, copy each sprite's `duration` field
             (milliseconds) into the per-frame entry. Aseprite and several
             Phaser pipelines use this to drive playback timing.
@@ -73,7 +88,8 @@ class JsonArrayExportOptions:
     format_string: str = "RGBA8888"
     scale_string: str = "1"
     app_name: str = "TextureAtlas Toolbox"
-    app_version: str = "2.0.5"
+    app_version: str = "1.0"
+    append_extension: bool = True
     emit_durations: bool = True
     frame_tags: List[Dict[str, Any]] = None  # type: ignore[assignment]
     extra_meta: Dict[str, Any] = None  # type: ignore[assignment]
@@ -163,20 +179,27 @@ class JsonArrayExporter(BaseExporter):
 
         # Add meta block if requested
         if opts.include_meta:
+            # Soft watermark: embed the TextureAtlas Toolbox version inside
+            # ``meta.app`` so ``meta.version`` can keep carrying the
+            # TexturePacker schema version (parsers like Phaser / PixiJS /
+            # Cocos may inspect that field).
+            toolbox_version = APP_VERSION
+            if generator_metadata and generator_metadata.app_version:
+                toolbox_version = generator_metadata.app_version
+            app_field = (
+                f"{opts.app_name} ({toolbox_version})"
+                if opts.app_name
+                else f"TextureAtlas Toolbox ({toolbox_version})"
+            )
             meta_block: Dict[str, Any] = {
-                "app": opts.app_name,
+                "app": app_field,
                 "version": opts.app_version,
                 "image": image_name,
                 "format": opts.format_string,
                 "size": {"w": atlas_width, "h": atlas_height},
                 "scale": opts.scale_string,
             }
-            # Add generator metadata if provided
             if generator_metadata:
-                if generator_metadata.app_version:
-                    meta_block["generator"] = (
-                        f"TextureAtlas Toolbox ({generator_metadata.app_version})"
-                    )
                 if generator_metadata.packer:
                     meta_block["packer"] = generator_metadata.packer
                 if generator_metadata.heuristic:
@@ -226,7 +249,7 @@ class JsonArrayExporter(BaseExporter):
         trimmed = frame_x != 0 or frame_y != 0 or frame_w != width or frame_h != height
 
         entry: Dict[str, Any] = {
-            "filename": packed.name,
+            "filename": self._frame_filename(packed.name, opts),
             "frame": {
                 "x": packed.atlas_x,
                 "y": packed.atlas_y,
@@ -257,6 +280,18 @@ class JsonArrayExporter(BaseExporter):
             entry["duration"] = int(sprite["duration"])
 
         return entry
+
+    @staticmethod
+    def _frame_filename(name: str, opts: JsonArrayExportOptions) -> str:
+        """Return the JSON Array `filename` value for *name*.
+
+        Appends `.png` when ``opts.append_extension`` is True and the name
+        does not already carry a known image extension. Matches
+        TexturePacker's default JSON Array output.
+        """
+        if opts.append_extension and not name.lower().endswith(_IMAGE_EXTENSIONS):
+            return f"{name}.png"
+        return name
 
 
 __all__ = ["JsonArrayExporter", "JsonArrayExportOptions"]

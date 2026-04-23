@@ -42,6 +42,10 @@ from exporters.exporter_types import (
     GeneratorMetadata,
     PackedSprite,
 )
+from utils.version import APP_VERSION
+
+
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tga")
 
 
 @dataclass
@@ -54,7 +58,17 @@ class JsonHashExportOptions:
         format_string: Pixel format string for meta block (e.g., "RGBA8888").
         scale_string: Scale string for meta block (e.g., "1").
         app_name: Application name for meta.app field.
-        app_version: Application version for meta.version field.
+        app_name: Identifier written to ``meta.app``. The TextureAtlas
+            Toolbox version is appended in parentheses as a soft watermark
+            so downstream consumers can identify the producing tool while
+            ``meta.version`` continues to carry the TexturePacker schema
+            version (which Phaser / PixiJS / Cocos may inspect).
+        app_version: TexturePacker schema version written to
+            ``meta.version``. Defaults to ``"1.0"`` to match TexturePacker's
+            current default JSON Hash output.
+        append_extension: When True (the TexturePacker default that Phaser /
+            PixiJS / Cocos Creator all expect), append `.png` to frame keys
+            that do not already carry a known image extension.
         emit_durations: When True, copy each sprite's `duration` field
             (milliseconds) into the per-frame entry. Aseprite and several
             Phaser pipelines use this to drive playback timing.
@@ -72,7 +86,8 @@ class JsonHashExportOptions:
     format_string: str = "RGBA8888"
     scale_string: str = "1"
     app_name: str = "TextureAtlas Toolbox"
-    app_version: str = "2.0.5"
+    app_version: str = "1.0"
+    append_extension: bool = True
     emit_durations: bool = True
     frame_tags: List[Dict[str, Any]] = None  # type: ignore[assignment]
     extra_meta: Dict[str, Any] = None  # type: ignore[assignment]
@@ -152,30 +167,42 @@ class JsonHashExporter(BaseExporter):
         """
         opts = self._format_options
 
-        # Build frames hash
+        # Build frames hash. TexturePacker's default JSON Hash output
+        # keys frames by their source filename including extension; Phaser /
+        # PixiJS / Cocos Creator loaders all key off that exact string.
         frames: Dict[str, Dict[str, Any]] = {}
         for packed in packed_sprites:
-            frames[packed.name] = self._build_frame_entry(packed, opts)
+            frames[self._frame_key(packed.name, opts)] = self._build_frame_entry(
+                packed, opts
+            )
 
         # Build output structure
         output: Dict[str, Any] = {"frames": frames}
 
         # Add meta block if requested
         if opts.include_meta:
+            # Soft watermark: embed the TextureAtlas Toolbox version inside
+            # ``meta.app`` so ``meta.version`` can keep carrying the
+            # TexturePacker schema version (parsers like Phaser / PixiJS /
+            # Cocos may inspect that field). Prefer the generator-supplied
+            # toolbox version when available.
+            toolbox_version = APP_VERSION
+            if generator_metadata and generator_metadata.app_version:
+                toolbox_version = generator_metadata.app_version
+            app_field = (
+                f"{opts.app_name} ({toolbox_version})"
+                if opts.app_name
+                else f"TextureAtlas Toolbox ({toolbox_version})"
+            )
             meta_block: Dict[str, Any] = {
-                "app": opts.app_name,
+                "app": app_field,
                 "version": opts.app_version,
                 "image": image_name,
                 "format": opts.format_string,
                 "size": {"w": atlas_width, "h": atlas_height},
                 "scale": opts.scale_string,
             }
-            # Add generator metadata if provided
             if generator_metadata:
-                if generator_metadata.app_version:
-                    meta_block["generator"] = (
-                        f"TextureAtlas Toolbox ({generator_metadata.app_version})"
-                    )
                 if generator_metadata.packer:
                     meta_block["packer"] = generator_metadata.packer
                 if generator_metadata.heuristic:
@@ -194,6 +221,18 @@ class JsonHashExporter(BaseExporter):
         # Serialize
         indent = 4 if self.options.pretty_print else None
         return json.dumps(output, indent=indent, ensure_ascii=False)
+
+    @staticmethod
+    def _frame_key(name: str, opts: JsonHashExportOptions) -> str:
+        """Return the JSON Hash dictionary key for *name*.
+
+        Appends `.png` when ``opts.append_extension`` is True and the name
+        does not already carry a known image extension. Matches
+        TexturePacker's default JSON Hash output.
+        """
+        if opts.append_extension and not name.lower().endswith(_IMAGE_EXTENSIONS):
+            return f"{name}.png"
+        return name
 
     def _build_frame_entry(
         self,
