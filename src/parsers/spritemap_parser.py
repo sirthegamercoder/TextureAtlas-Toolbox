@@ -116,7 +116,15 @@ class SpritemapParser(BaseParser):
             # Compute which symbols to show as standalone animations.
             # Direct children of the root timeline are the actual playable
             # animations; deeper nested symbols are internal helpers.
-            direct_children = collect_direct_child_symbols(animation_json)
+            # Only restrict to direct children when the user has opted to
+            # hide single-frame symbols (the "hide internal helpers" intent).
+            # When that option is off, the user explicitly wants every
+            # symbol/graphic part exposed for standalone extraction.
+            direct_children = (
+                collect_direct_child_symbols(animation_json)
+                if self.filter_single_frame
+                else None
+            )
             if direct_children:
                 referenced_symbols = direct_children
             elif self.filter_unused_symbols:
