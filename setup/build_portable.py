@@ -1600,6 +1600,133 @@ echo "============================================================"
         requirements_dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(requirements_src, requirements_dst)
 
+        # Write a Linux/macOS-specific README next to the launcher.
+        readme_content = """# TextureAtlas Toolbox - Linux / macOS Portable Build
+
+> [!WARNING]
+> **Experimental build.** The Linux and macOS portable distributions are
+> **not regularly tested by the developer** (development happens on Windows).
+> They are provided as a convenience and may contain platform-specific bugs.
+> If something does not work, please open an issue on GitHub with the output
+> of `./setup.sh` and the launcher so it can be diagnosed.
+
+## What's in this folder
+
+| File / Folder | Purpose |
+|---|---|
+| `setup.sh` | First-time setup: installs ImageMagick (via your package manager / Homebrew) and creates the bundled Python virtual environment. |
+| `TextureAtlas Toolbox.sh` | Main launcher. Run this after `setup.sh` succeeds. |
+| `TextureAtlas Toolbox Debug.sh` | Same launcher, but keeps the terminal open so you can read errors. |
+| `TextureAtlas Toolbox (Admin).sh` | Launcher that re-executes itself with `sudo` (only needed if the app is installed in a write-protected location and you want to update in-place). |
+| `TextureAtlas Toolbox Debug (Admin).sh` | Admin launcher with the console kept open. |
+| `python/` | The bundled Python virtual environment (created by `setup.sh`). |
+| `src/`, `assets/`, `docs/`, `ImageMagick/` | Application code and resources. |
+
+## Quick start
+
+```bash
+# 1. Make the scripts executable (only needed once, and only if your archiver
+#    stripped the +x bit; tar.gz preserves it, some zip extractors do not).
+chmod +x setup.sh "TextureAtlas Toolbox.sh"
+
+# 2. Run the first-time setup. Installs ImageMagick + creates ./python venv.
+./setup.sh
+
+# 3. Launch the app.
+./"TextureAtlas Toolbox.sh"
+```
+
+If the launcher fails, run the **Debug** variant to see the full error:
+
+```bash
+./"TextureAtlas Toolbox Debug.sh"
+```
+
+## What `setup.sh` does
+
+`setup.sh` is interactive by default and walks through three steps:
+
+1. **ImageMagick** - required by the `Wand` Python binding for several
+   image-processing features. The script auto-detects your package manager
+   and asks before running anything with `sudo`.
+   - **macOS:** uses Homebrew. If Homebrew is missing, the script offers
+     to install it from https://brew.sh/ (you will be prompted before any
+     install runs).
+   - **Linux:** auto-detects `apt`, `dnf`, `yum`, `pacman`, `zypper`, or
+     `apk` and shows you the exact command before executing it.
+2. **Python** - checks that `python3` >= 3.10 is available. If it is not,
+   the script prints distro-specific install hints and exits.
+3. **Virtual environment** - creates `./python/` (a venv) and installs the
+   contents of `setup/requirements.txt` into it. Re-running the script
+   reuses the existing venv.
+
+After the three steps finish, `setup.sh` performs a quick verification
+that imports `PySide6`, `PIL`, and `wand.image` from the bundled venv to
+confirm the install actually works. Warnings (not errors) are printed if
+any of those fail to import.
+
+### Non-interactive flags
+
+```text
+--yes, -y             Assume "yes" to every prompt (no questions asked).
+--skip-imagemagick    Skip the ImageMagick installation step entirely.
+--skip-python         Skip the Python venv creation/install step.
+--help, -h            Show this list and exit.
+```
+
+Example for a CI-style unattended install:
+
+```bash
+./setup.sh --yes
+```
+
+## Troubleshooting
+
+**"Bundled Python not found! Please run setup.sh first to configure Python."**
+The launcher could not find `./python/bin/python`. Run `./setup.sh` first.
+
+**"Wand could not import (ImageMagick library not found?)"**
+The bundled Python venv was created, but the system ImageMagick libraries
+are not visible. Re-run `./setup.sh` and make sure step 1 (ImageMagick)
+finishes without errors. On Debian/Ubuntu the package you need is
+`libmagickwand-dev`. On macOS, `brew install imagemagick`.
+
+**`venv creation failed` on Debian/Ubuntu**
+Your distro splits venv into a separate package. Install it and re-run:
+
+```bash
+sudo apt install python3-venv python3-pip
+./setup.sh
+```
+
+**Permissions: "Permission denied" when running a `.sh` file**
+The +x bit is missing. Fix it once with:
+
+```bash
+chmod +x setup.sh *.sh
+```
+
+**Apple Silicon / arm64 macOS**
+The portable build uses your system Python via a venv (no embedded
+runtime on Unix), so it follows your installed Python's architecture.
+PySide6 wheels are published for both x86_64 and arm64 on PyPI.
+
+## Reporting issues
+
+When filing a bug for the Linux/macOS portable build, please include:
+
+- Output of `./setup.sh` (full log).
+- Output of `./"TextureAtlas Toolbox Debug.sh"` (full log including any
+  Python traceback).
+- `python3 --version`, `uname -a`, distro name + version.
+- Output of `magick --version` (or `convert --version`).
+
+Issues: https://github.com/MeguminBOT/TextureAtlas-to-GIF-and-Frames/issues
+"""
+        readme_path = dist_path / "README-LINUX-MACOS.md"
+        readme_path.write_text(readme_content, encoding="utf-8")
+        self.log(f"Created: {readme_path.name}")
+
     def _create_tar_archive(self, dist_path: Path) -> Path:
         """Create a tar.gz archive of the distribution."""
         import tarfile
