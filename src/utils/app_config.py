@@ -602,7 +602,7 @@ class AppConfig:
         """Return the stored theme variant.
 
         Returns:
-            One of 'light', 'dark', or 'amoled'.
+            One of 'light', 'dark', or 'black'.
         """
         return self.settings.get("interface", {}).get("theme_variant", "dark")
 
@@ -629,7 +629,7 @@ class AppConfig:
 
         Args:
             family: Theme family ('clean', 'material', 'fluent').
-            variant: Theme variant ('light', 'dark', 'amoled').
+            variant: Theme variant ('light', 'dark', 'black').
             accent_key: Accent colour preset name.
             font_override: Font family name, or empty string for default.
         """
