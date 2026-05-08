@@ -571,13 +571,53 @@ class AppConfig:
             return manager.get_system_locale()
         return language
 
+    # Whitelists for interface settings; unknown values fall back to the
+    # default to keep the app usable when a config file has been hand-edited
+    # or written by an older/newer build.
+    _VALID_COLOR_SCHEMES = frozenset({"auto", "light", "dark"})
+    _VALID_THEME_FAMILIES = frozenset(
+        {"clean", "material", "fluent", "win95", "winxp"}
+    )
+    _VALID_THEME_VARIANTS = frozenset({"light", "dark", "black"})
+    _VALID_ACCENT_KEYS = frozenset(
+        {"default", "blue", "purple", "green", "orange", "pink", "red", "teal"}
+    )
+
+    def _get_validated_interface_value(self, key, valid_values, default):
+        """Return an interface setting clamped to a known set of values.
+
+        Args:
+            key: Interface setting name.
+            valid_values: Set of accepted values.
+            default: Fallback returned when the stored value is missing or
+                not in ``valid_values``.
+
+        Returns:
+            The stored value if recognised, otherwise ``default``. A warning
+            is logged when an unknown value is encountered so the user can
+            spot a corrupted/edited config.
+        """
+        value = self.settings.get("interface", {}).get(key, default)
+        if value not in valid_values:
+            logger.warning(
+                "[Config] Unknown value %r for interface.%s; falling back to %r.",
+                value,
+                key,
+                default,
+            )
+            return default
+        return value
+
     def get_color_scheme(self):
         """Return the stored color scheme preference.
 
         Returns:
-            One of 'auto', 'light', or 'dark'.
+            One of 'auto', 'light', or 'dark'. Unknown values fall back to
+            'auto'.
         """
-        return self.settings.get("interface", {}).get("color_scheme", "auto")
+        return self._get_validated_interface_value(
+            "color_scheme", self._VALID_COLOR_SCHEMES, "auto"
+        )
 
     def set_color_scheme(self, scheme):
         """Set the application color scheme and persist to disk.
@@ -594,25 +634,34 @@ class AppConfig:
         """Return the stored theme family.
 
         Returns:
-            One of 'clean', 'material', or 'fluent'.
+            One of 'clean', 'material', 'fluent', 'win95', or 'winxp'.
+            Unknown values fall back to 'clean'.
         """
-        return self.settings.get("interface", {}).get("theme_family", "clean")
+        return self._get_validated_interface_value(
+            "theme_family", self._VALID_THEME_FAMILIES, "clean"
+        )
 
     def get_theme_variant(self):
         """Return the stored theme variant.
 
         Returns:
-            One of 'light', 'dark', or 'black'.
+            One of 'light', 'dark', or 'black'. Unknown values fall back to
+            'dark'.
         """
-        return self.settings.get("interface", {}).get("theme_variant", "dark")
+        return self._get_validated_interface_value(
+            "theme_variant", self._VALID_THEME_VARIANTS, "dark"
+        )
 
     def get_accent_key(self):
         """Return the stored accent colour key.
 
         Returns:
             An accent preset name such as 'default', 'blue', 'purple', etc.
+            Unknown values fall back to 'default'.
         """
-        return self.settings.get("interface", {}).get("accent_key", "default")
+        return self._get_validated_interface_value(
+            "accent_key", self._VALID_ACCENT_KEYS, "default"
+        )
 
     def get_font_override(self):
         """Return the stored font override, or empty string for theme default.
