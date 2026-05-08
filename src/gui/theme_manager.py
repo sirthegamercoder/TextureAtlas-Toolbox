@@ -3,7 +3,7 @@
 
 """Centralized theme engine for TextureAtlas Toolbox.
 
-Manages 9 theme variants (Clean / Material / Fluent × Light / Dark / AMOLED),
+Manages 9 theme variants (Clean / Material / Fluent × Light / Dark / Black),
 accent colour presets, per-family icon fonts via qtawesome, and QSS generation.
 
 Usage:
@@ -621,19 +621,19 @@ ACCENT_PRESETS: dict[str, dict | None] = {
 THEME_LABELS: dict[str, str] = {
     "clean_light": "Clean Light",
     "clean_dark": "Clean Dark",
-    "clean_amoled": "Clean AMOLED",
+    "clean_black": "Clean Black",
     "material_light": "Material Light",
     "material_dark": "Material Dark",
-    "material_amoled": "Material AMOLED",
+    "material_black": "Material Black",
     "fluent_light": "Fluent Light",
     "fluent_dark": "Fluent Dark",
-    "fluent_amoled": "Fluent AMOLED",
+    "fluent_black": "Fluent Black",
     "win95_light": "Windows 95 Light",
     "win95_dark": "Windows 95 Dark",
-    "win95_amoled": "Windows 95 AMOLED",
+    "win95_black": "Windows 95 Black",
     "winxp_light": "Windows XP Light",
     "winxp_dark": "Windows XP Dark",
-    "winxp_amoled": "Windows XP AMOLED",
+    "winxp_black": "Windows XP Black",
 }
 
 THEME_LABELS_REV = {v: k for k, v in THEME_LABELS.items()}
@@ -1808,7 +1808,7 @@ QDialog {{
 """
 
 _MATERIAL_DARK_TEXT_FIX = """
-/* Reinforce light text on Material dark/amoled to prevent stale-palette bleed */
+/* Reinforce light text on Material dark/black to prevent stale-palette bleed */
 QWidget { color: #ffffff; }
 QLabel { color: #ffffff; }
 QGroupBox { color: #ffffff; }
@@ -1842,7 +1842,7 @@ QStatusBar { color: #ffffff; }
 QToolTip { color: #d4d4d4; }
 """
 
-_MATERIAL_AMOLED_OVERLAY = """
+_MATERIAL_BLACK_OVERLAY = """
 /* Force pure black for OLED screens */
 QMainWindow, QDialog, QWidget {
     background-color: #000000;
@@ -2652,7 +2652,7 @@ THEME_TOKENS: dict[str, dict[str, str]] = {
         "success": "#89D185",
         "warning": "#CCA700",
     },
-    "clean_amoled": {
+    "clean_black": {
         "bg": "#000000",
         "surface": "#0A0A0A",
         "border": "#2A2A2A",
@@ -2718,7 +2718,7 @@ THEME_TOKENS: dict[str, dict[str, str]] = {
         "success": "#A8DB8F",
         "warning": "#FFB95A",
     },
-    "material_amoled": {
+    "material_black": {
         "bg": "#000000",
         "surface": "#0C0A12",
         "border": "#3A3540",
@@ -2784,7 +2784,7 @@ THEME_TOKENS: dict[str, dict[str, str]] = {
         "success": "#6CCB5F",
         "warning": "#F7630C",
     },
-    "fluent_amoled": {
+    "fluent_black": {
         "bg": "#000000",
         "surface": "#0A0A0A",
         "border": "#2C2C2C",
@@ -2851,7 +2851,7 @@ THEME_TOKENS: dict[str, dict[str, str]] = {
         "success": "#60C060",
         "warning": "#C0C060",
     },
-    "win95_amoled": {
+    "win95_black": {
         "bg": "#000000",
         "surface": "#0D0D0D",
         "border": "#404040",
@@ -2918,7 +2918,7 @@ THEME_TOKENS: dict[str, dict[str, str]] = {
         "success": "#89D185",
         "warning": "#CCA700",
     },
-    "winxp_amoled": {
+    "winxp_black": {
         "bg": "#000000",
         "surface": "#0A0E14",
         "border": "#2A3444",
@@ -3022,7 +3022,7 @@ def apply_theme(
         window: The main window (used for icon refresh).
         family: Theme family — 'clean', 'material', 'fluent', 'win95',
             or 'winxp'.
-        variant: Theme variant — 'light', 'dark', or 'amoled'.
+        variant: Theme variant — 'light', 'dark', or 'black'.
         accent_key: Accent colour preset name from :data:`ACCENT_PRESETS`.
         font_override: Font family name; empty string uses the theme default.
     """
@@ -3078,7 +3078,7 @@ def apply_theme(
         # qt-material sets its own palette but may miss some roles;
         # explicitly reinforce text colours to prevent stale light-palette
         # entries from bleeding through after a theme switch.
-        if variant in ("dark", "amoled"):
+        if variant in ("dark", "black"):
             pal = app.palette()
             _light = QColor("#CCCCCC")
             _dim = QColor("#808080")
@@ -3104,10 +3104,10 @@ def apply_theme(
             "QHeaderView::section {" "  font-size: 11px;" "  text-align: left;" "}"
         )
         overlay = _header_fix + arrow_qss
-        if variant in ("dark", "amoled"):
+        if variant in ("dark", "black"):
             overlay = _MATERIAL_DARK_TEXT_FIX + overlay
-        if variant == "amoled":
-            overlay = _MATERIAL_AMOLED_OVERLAY + overlay
+        if variant == "black":
+            overlay = _MATERIAL_BLACK_OVERLAY + overlay
         if overlay:
             app.setStyleSheet(app.styleSheet() + overlay)
     else:

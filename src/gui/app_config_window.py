@@ -2050,7 +2050,7 @@ class AppConfigWindow(QDialog):
             "• Clean: Minimal borders, cool grays\n"
             "• Material: Material Design 3 (rounded, bold accents)\n"
             "• Fluent: Fluent Design with subtle gradients\n\n"
-            "Each family has Light, Dark, and AMOLED variants."
+            "Each family has Light, Dark, and Black variants."
         )
         theme_label.setToolTip(theme_tooltip)
         appearance_layout.addWidget(theme_label, row, 0)

@@ -124,7 +124,7 @@ Currently only works with Extraction tool and is in very early beta, feedback on
 
 ### General
 
--   ✅ **15 built-in themes**: Five theme families (Clean, Material, Fluent, Windows 95, Windows XP) × Light, Dark, and AMOLED variants
+-   ✅ **15 built-in themes**: Five theme families (Clean, Material, Fluent, Windows 95, Windows XP) × Light, Dark, and Black variants
 -   ✅ **Accent colour presets**: Eight accent colours applied across all themes
 -   ✅ **Setup wizard**: Step-based first-launch wizard with live theme preview
 -   ✅ **Auto-update system**: Automatic checking and installation of updates

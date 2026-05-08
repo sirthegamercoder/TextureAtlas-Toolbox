@@ -54,7 +54,7 @@ _THEME_FAMILIES = [
 _THEME_VARIANTS = [
     ("light", "Light"),
     ("dark", "Dark"),
-    ("amoled", "AMOLED"),
+    ("black", "Black"),
 ]
 
 _ACCENT_PRESETS = [
@@ -375,7 +375,7 @@ class FirstStartDialog(QDialog):
         self.notice_label = QLabel(
             self.tr(
                 "Version 3 introduces customizable theme families with light, "
-                "dark, and AMOLED variants, plus improved controls and styling."
+                "dark, and Black variants, plus improved controls and styling."
                 "\n"
             )
         )
@@ -566,7 +566,7 @@ class FirstStartDialog(QDialog):
         self.notice_label.setText(
             self.tr(
                 "Version 3 introduces customizable theme families with light, "
-                "dark, and AMOLED variants, plus improved controls and styling."
+                "dark, and Black variants, plus improved controls and styling."
                 "\n"
             )
         )

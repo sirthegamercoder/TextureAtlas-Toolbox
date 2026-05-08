@@ -44,7 +44,7 @@ The first time you open the app (or after a major upgrade) a three-step wizard a
    native, reviewed, or machine-generated.
 2. **What's New** — Overview of the latest changes and an option to enable automatic update
    checks.
-3. **Theme** — Pick a theme family, light/dark/AMOLED variant, and accent colour. A live
+3. **Theme** — Pick a theme family, light/dark/black variant, and accent colour. A live
    preview panel shows sample widgets that update in real-time as you change options.
 
 Fresh installs default to the **Clean** family with **Light** or **Dark** automatically
@@ -52,7 +52,7 @@ detected from your operating system colour scheme.
 
 ## Themes and Appearance
 
-TextureAtlas Toolbox ships with five theme families, each available in Light, Dark, and AMOLED
+TextureAtlas Toolbox ships with five theme families, each available in Light, Dark, and Black
 variants (15 combinations):
 
 | Family       | Description                                          |
