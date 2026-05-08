@@ -347,7 +347,8 @@ class AnimationDisplay(QScrollArea):
             True if the event was handled, False otherwise.
         """
         if source == self.image_label and event.type() == event.Type.Wheel:
-            return self.wheelEvent(event)
+            self.wheelEvent(event)
+            return event.isAccepted()
         return super().eventFilter(source, event)
 
     def wheelEvent(self, event):
@@ -355,9 +356,6 @@ class AnimationDisplay(QScrollArea):
 
         Args:
             event: QWheelEvent containing scroll delta and modifiers.
-
-        Returns:
-            True if zooming was applied, otherwise the parent result.
         """
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             angle_delta = event.angleDelta().y()
@@ -370,9 +368,8 @@ class AnimationDisplay(QScrollArea):
                 self.scale_changed.emit(new_scale)
 
             event.accept()
-            return True
         else:
-            return super().wheelEvent(event)
+            super().wheelEvent(event)
 
     def set_background_color(self, color: QColor):
         """Set a solid background color and switch to Solid Color mode.
