@@ -1336,6 +1336,29 @@ read -p "Press Enter to close..."
 
 # TextureAtlas Toolbox - First-time Setup
 # Run this script once after extracting if the launcher doesn't work.
+#
+# Flags:
+#   --yes, -y         Assume "yes" to all prompts (non-interactive)
+#   --skip-imagemagick   Skip ImageMagick installation step
+#   --skip-python        Skip Python venv setup step
+#   --help, -h        Show this help message
+
+set -u
+
+ASSUME_YES=0
+SKIP_IMAGEMAGICK=0
+SKIP_PYTHON=0
+for arg in "$@"; do
+    case "$arg" in
+        --yes|-y) ASSUME_YES=1 ;;
+        --skip-imagemagick) SKIP_IMAGEMAGICK=1 ;;
+        --skip-python) SKIP_PYTHON=1 ;;
+        --help|-h)
+            sed -n '2,12p' "$0"
+            exit 0
+            ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -1356,79 +1379,120 @@ fi
 echo "Detected OS: $OS_TYPE"
 echo
 
+# Helper: prompt for yes/no, honour --yes
+confirm() {
+    # $1 = prompt, default No
+    if [ "$ASSUME_YES" -eq 1 ]; then
+        return 0
+    fi
+    local reply
+    read -r -p "$1 [y/N] " reply
+    [[ "$reply" =~ ^[Yy]$ ]]
+}
+
 # ==============================================================
-# Step 1: Check/Install ImageMagick
+# Step 1: Check/Install ImageMagick (and Homebrew on macOS)
 # ==============================================================
 echo "[1/3] Checking ImageMagick..."
 
 check_imagemagick() {
-    # Check if ImageMagick (magick command or convert) is available
     if command -v magick &> /dev/null; then
-        echo "  Found: $(magick --version | head -1)"
+        echo "  Found: $(magick --version 2>/dev/null | head -1)"
         return 0
     elif command -v convert &> /dev/null; then
-        echo "  Found: $(convert --version | head -1)"
+        echo "  Found: $(convert --version 2>/dev/null | head -1)"
         return 0
     fi
     return 1
 }
 
-install_imagemagick() {
-    echo "  ImageMagick not found. Attempting to install..."
+install_homebrew_macos() {
     echo
-    
-    if [[ "$OS_TYPE" == "macos" ]]; then
-        # macOS - use Homebrew
-        if command -v brew &> /dev/null; then
-            echo "  Installing via Homebrew..."
-            brew install imagemagick
-        else
-            echo "  ERROR: Homebrew not found."
-            echo "  Please install Homebrew first: https://brew.sh/"
-            echo "  Then run: brew install imagemagick"
-            return 1
-        fi
-    elif [[ "$OS_TYPE" == "linux" ]]; then
-        # Linux - detect package manager
-        if command -v apt-get &> /dev/null; then
-            echo "  Installing via apt (Debian/Ubuntu)..."
-            sudo apt-get update && sudo apt-get install -y libmagickwand-dev imagemagick
-        elif command -v dnf &> /dev/null; then
-            echo "  Installing via dnf (Fedora)..."
-            sudo dnf install -y ImageMagick-devel
-        elif command -v yum &> /dev/null; then
-            echo "  Installing via yum (CentOS/RHEL)..."
-            sudo yum install -y ImageMagick-devel
-        elif command -v pacman &> /dev/null; then
-            echo "  Installing via pacman (Arch)..."
-            sudo pacman -S --noconfirm imagemagick
-        elif command -v zypper &> /dev/null; then
-            echo "  Installing via zypper (openSUSE)..."
-            sudo zypper install -y ImageMagick-devel
-        elif command -v apk &> /dev/null; then
-            echo "  Installing via apk (Alpine)..."
-            sudo apk add imagemagick imagemagick-dev
-        else
-            echo "  ERROR: Could not detect package manager."
-            echo "  Please install ImageMagick manually."
-            return 1
-        fi
-    else
-        echo "  ERROR: Unsupported OS."
+    echo "  Homebrew is required to install ImageMagick on macOS."
+    echo "  It will be installed from: https://brew.sh/"
+    if ! confirm "  Install Homebrew now?"; then
+        echo "  Skipped Homebrew installation."
+        echo "  Install it manually from https://brew.sh/ and re-run this script."
         return 1
     fi
-    
-    return 0
+    /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"
+    # Make brew available in this shell session
+    if [ -x /opt/homebrew/bin/brew ]; then
+        eval \"$(/opt/homebrew/bin/brew shellenv)\"
+    elif [ -x /usr/local/bin/brew ]; then
+        eval \"$(/usr/local/bin/brew shellenv)\"
+    fi
+    command -v brew &> /dev/null
 }
 
-if ! check_imagemagick; then
-    install_imagemagick
-    if ! check_imagemagick; then
+install_imagemagick() {
+    echo "  ImageMagick not found."
+
+    if [[ "$OS_TYPE" == "macos" ]]; then
+        if ! command -v brew &> /dev/null; then
+            if ! install_homebrew_macos; then
+                return 1
+            fi
+        fi
+        if ! confirm "  Install ImageMagick via Homebrew now?"; then
+            echo "  Skipped. Install manually with: brew install imagemagick"
+            return 1
+        fi
+        echo "  Installing via Homebrew..."
+        brew install imagemagick
+    elif [[ "$OS_TYPE" == "linux" ]]; then
+        local pm_cmd=""
+        local pm_name=""
+        if command -v apt-get &> /dev/null; then
+            pm_name="apt (Debian/Ubuntu)"
+            pm_cmd="sudo apt-get update && sudo apt-get install -y libmagickwand-dev imagemagick"
+        elif command -v dnf &> /dev/null; then
+            pm_name="dnf (Fedora)"
+            pm_cmd="sudo dnf install -y ImageMagick ImageMagick-devel"
+        elif command -v yum &> /dev/null; then
+            pm_name="yum (CentOS/RHEL)"
+            pm_cmd="sudo yum install -y ImageMagick ImageMagick-devel"
+        elif command -v pacman &> /dev/null; then
+            pm_name="pacman (Arch)"
+            pm_cmd="sudo pacman -S --noconfirm imagemagick"
+        elif command -v zypper &> /dev/null; then
+            pm_name="zypper (openSUSE)"
+            pm_cmd="sudo zypper install -y ImageMagick ImageMagick-devel"
+        elif command -v apk &> /dev/null; then
+            pm_name="apk (Alpine)"
+            pm_cmd="sudo apk add imagemagick imagemagick-dev"
+        else
+            echo "  ERROR: Could not detect a supported package manager."
+            echo "  Please install ImageMagick manually (package: imagemagick)."
+            return 1
+        fi
+        echo "  Detected package manager: $pm_name"
+        if ! confirm "  Run: $pm_cmd ?"; then
+            echo "  Skipped. Install manually and re-run this script."
+            return 1
+        fi
+        eval "$pm_cmd"
+    else
+        echo "  ERROR: Unsupported OS ($OSTYPE)."
+        return 1
+    fi
+}
+
+if [ "$SKIP_IMAGEMAGICK" -eq 1 ]; then
+    echo "  Skipping ImageMagick step (--skip-imagemagick)."
+elif ! check_imagemagick; then
+    if install_imagemagick; then
+        if check_imagemagick; then
+            echo "  ImageMagick installed successfully."
+        else
+            echo
+            echo "  WARNING: ImageMagick still not detected after install attempt."
+            echo "  The app may not work correctly without ImageMagick."
+        fi
+    else
         echo
-        echo "  WARNING: ImageMagick installation may have failed."
+        echo "  WARNING: ImageMagick was not installed."
         echo "  The app may not work correctly without ImageMagick."
-        echo "  Please install it manually and re-run this script."
-        echo
     fi
 fi
 echo
@@ -1438,23 +1502,27 @@ echo
 # ==============================================================
 echo "[2/3] Checking Python..."
 
-# Check for Python 3
 if command -v python3 &> /dev/null; then
     PYTHON_CMD="python3"
 elif command -v python &> /dev/null; then
     PYTHON_CMD="python"
 else
     echo "  ERROR: Python 3 is not installed."
-    echo "  Please install Python 3.10 or later from your package manager:"
+    echo "  Install Python 3.10+ via your package manager:"
     echo "    Ubuntu/Debian: sudo apt install python3 python3-venv python3-pip"
-    echo "    Fedora: sudo dnf install python3 python3-pip"
-    echo "    macOS: brew install python3"
+    echo "    Fedora:        sudo dnf install python3 python3-pip"
+    echo "    Arch:          sudo pacman -S python python-pip"
+    echo "    macOS:         brew install python@3.14"
     exit 1
 fi
 
-# Check Python version
 PY_VERSION=$($PYTHON_CMD -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-echo "  Found Python $PY_VERSION"
+PY_OK=$($PYTHON_CMD -c 'import sys; print("ok" if sys.version_info >= (3, 10) else "old")')
+echo "  Found Python $PY_VERSION ($PYTHON_CMD)"
+if [ "$PY_OK" != "ok" ]; then
+    echo "  ERROR: Python 3.10 or later is required."
+    exit 1
+fi
 echo
 
 # ==============================================================
@@ -1462,22 +1530,63 @@ echo
 # ==============================================================
 echo "[3/3] Setting up Python environment..."
 
-# Create virtual environment if it doesn't exist
-if [ ! -d "python" ]; then
-    echo "  Creating Python virtual environment..."
-    $PYTHON_CMD -m venv python
+if [ "$SKIP_PYTHON" -eq 1 ]; then
+    echo "  Skipping Python venv setup (--skip-python)."
+else
+    if [ ! -d "python" ]; then
+        echo "  Creating Python virtual environment..."
+        if ! $PYTHON_CMD -m venv python; then
+            echo "  ERROR: venv creation failed."
+            echo "  On Debian/Ubuntu install python3-venv: sudo apt install python3-venv"
+            exit 1
+        fi
+    else
+        echo "  Reusing existing Python venv."
+    fi
+
+    if [ -f "python/bin/pip" ]; then
+        PIP_EXE="python/bin/pip"
+    else
+        PIP_EXE="python/bin/python -m pip"
+    fi
+
+    echo "  Upgrading pip..."
+    $PIP_EXE install --upgrade pip > /dev/null
+
+    echo "  Installing required packages (this may take a few minutes)..."
+    if ! $PIP_EXE install -r setup/requirements.txt; then
+        echo
+        echo "  ERROR: Failed to install Python packages."
+        echo "  Check the output above for details."
+        exit 1
+    fi
 fi
 
-# Activate and install requirements
-echo "  Installing required packages..."
-source python/bin/activate
-pip install --upgrade pip
-pip install -r setup/requirements.txt
+# ==============================================================
+# Verification
+# ==============================================================
+echo
+echo "Verifying installation..."
+VERIFY_OK=1
+if [ -x "python/bin/python" ]; then
+    if ! python/bin/python -c "import PySide6, PIL" 2>/dev/null; then
+        echo "  WARNING: Required Python packages did not import cleanly."
+        VERIFY_OK=0
+    fi
+    if ! python/bin/python -c "import wand.image" 2>/dev/null; then
+        echo "  WARNING: Wand could not import (ImageMagick library not found?)."
+        VERIFY_OK=0
+    fi
+fi
 
 echo
 echo "============================================================"
-echo " Setup complete!"
-echo " You can now run: ./TextureAtlas Toolbox.sh"
+if [ "$VERIFY_OK" -eq 1 ]; then
+    echo " Setup complete!"
+else
+    echo " Setup finished with warnings (see above)."
+fi
+echo " You can now run: ./TextureAtlas\\\\ Toolbox.sh"
 echo "============================================================"
 """
         setup_path = dist_path / "setup.sh"

@@ -62,6 +62,14 @@ jobs:
       - name: Build portable distribution
         run: python setup/build_portable.py --python-version ${{ env.EMBEDDED_PYTHON_VERSION }} --no-archive
 
+      - name: Verify bundled setup.sh syntax
+        run: |
+          set -e
+          DIST="_build-output/portable/TextureAtlas Toolbox"
+          test -f "$DIST/setup.sh" || { echo "setup.sh missing in distribution"; exit 1; }
+          bash -n "$DIST/setup.sh"
+          echo "setup.sh OK"
+
       - name: Upload Linux distribution
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -88,6 +96,14 @@ jobs:
 
       - name: Build portable distribution
         run: python setup/build_portable.py --python-version ${{ env.EMBEDDED_PYTHON_VERSION }} --no-archive
+
+      - name: Verify bundled setup.sh syntax
+        run: |
+          set -e
+          DIST="_build-output/portable/TextureAtlas Toolbox"
+          test -f "$DIST/setup.sh" || { echo "setup.sh missing in distribution"; exit 1; }
+          bash -n "$DIST/setup.sh"
+          echo "setup.sh OK"
 
       - name: Upload macOS distribution
         uses: actions/upload-artifact@v7.0.1
